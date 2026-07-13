@@ -17,6 +17,8 @@ dist-ssr
 .env
 .env.local
 .env.*.local
+.env.production
+.env.development
 
 # Editor directories and files
 .vscode/*
@@ -39,3 +41,5 @@ PROGRESS.md
 backups/
 *.dump
 *.sql.backup
+*.backup
+*.db

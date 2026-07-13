@@ -25,6 +25,12 @@ import { supabase } from "../../config/supabase";
 import { APP_CONFIG } from "../../config/config";
 import PinModal from "../../components/security/PinModal";
 import { formatCurrency } from "../../utils/helpers";
+import {
+  cleanText,
+  getSafeErrorMessage,
+  validatePrice,
+  validateTextLength,
+} from "../../utils/security";
 
 const Menu: React.FC = () => {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -469,8 +475,34 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
     e.preventDefault();
     setError("");
 
-    if (!formData.name || !formData.base_price) {
-      setError("Name and base price are required");
+    const nameError = validateTextLength(formData.name, "Item name", 2, 100);
+    const descriptionError = validateTextLength(
+      formData.description,
+      "Description",
+      0,
+      500,
+      false
+    );
+    const priceError = validatePrice(formData.base_price, "Base price");
+    const allowedFoodTypes = ["veg", "non_veg", "egg", "jain"];
+
+    if (nameError || descriptionError || priceError) {
+      setError(nameError || descriptionError || priceError);
+      return;
+    }
+
+    if (!allowedFoodTypes.includes(formData.food_type)) {
+      setError("Select a valid food type.");
+      return;
+    }
+
+    const optionError = [...formData.sizes, ...formData.addons].find(
+      (option) =>
+        validateTextLength(option.name, "Option name", 1, 50) ||
+        validatePrice(option.price, "Option price")
+    );
+    if (optionError) {
+      setError("Sizes and add-ons need a valid name and positive price.");
       return;
     }
 
@@ -490,7 +522,12 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
       );
       if (uploadError || !url) {
         setLoading(false);
-        setError(uploadError?.message || "Failed to upload image");
+        setError(
+          getSafeErrorMessage(
+            uploadError,
+            "Image upload failed. Please try another image."
+          )
+        );
         return;
       }
       imageUrl = url;
@@ -498,15 +535,15 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
 
     const menuItemData = {
       restaurant_id: user.restaurant_id,
-      name: formData.name,
-      description: formData.description || undefined,
-      category: formData.category || undefined,
+      name: cleanText(formData.name, 100),
+      description: cleanText(formData.description, 500) || undefined,
+      category: cleanText(formData.category, 80) || undefined,
       base_price: parseFloat(formData.base_price),
       image_url: imageUrl,
       food_type: formData.food_type as MenuItem["food_type"],
       is_best_seller: formData.is_best_seller,
       is_recommended: formData.is_recommended,
-      tag_label: formData.tag_label || undefined,
+      tag_label: cleanText(formData.tag_label, 40) || undefined,
       is_available: formData.is_available,
       sizes: formData.sizes.length > 0 ? formData.sizes : undefined,
       addons: formData.addons.length > 0 ? formData.addons : undefined,

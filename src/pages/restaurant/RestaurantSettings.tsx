@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { ExternalLink, Lock, QrCode, Store } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Alert, Button, Card, Input, Loading, Textarea } from "../../components/ui";
+import BillingStatusCard from "../../components/billing/BillingStatusCard";
 import { supabase } from "../../config/supabase";
 import type { Restaurant } from "../../config/supabase";
 import {
@@ -11,6 +12,13 @@ import {
   validateRestaurantImage,
 } from "../../services/restaurantService";
 import { hashPassword } from "../../utils/helpers";
+import {
+  getSafeErrorMessage,
+  validateAdminPin,
+  validateGstRate,
+  validatePassword,
+  validateTextLength,
+} from "../../utils/security";
 
 const RestaurantSettings: React.FC = () => {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
@@ -118,7 +126,9 @@ const RestaurantSettings: React.FC = () => {
       );
       if (uploadError || !url) {
         setSaving(false);
-        setError(uploadError?.message || "Failed to upload logo");
+        setError(
+          getSafeErrorMessage(uploadError, "Image upload failed. Please try another image.")
+        );
         return;
       }
       logoUrl = url;
@@ -131,16 +141,40 @@ const RestaurantSettings: React.FC = () => {
       );
       if (uploadError || !url) {
         setSaving(false);
-        setError(uploadError?.message || "Failed to upload UPI QR image");
+        setError(
+          getSafeErrorMessage(uploadError, "Image upload failed. Please try another image.")
+        );
         return;
       }
       upiQrUrl = url;
     }
 
+    const welcomeError = validateTextLength(
+      formData.welcome_message,
+      "Welcome message",
+      0,
+      250,
+      false
+    );
+    if (welcomeError) {
+      setSaving(false);
+      setError(welcomeError);
+      return;
+    }
+
+    const cgstError = validateGstRate(formData.cgst_rate || "0");
+    const sgstError = validateGstRate(formData.sgst_rate || "0");
+    if (cgstError || sgstError) {
+      setSaving(false);
+      setError(cgstError || sgstError);
+      return;
+    }
+
     if (formData.admin_pin.trim()) {
-      if (!/^\d{4,6}$/.test(formData.admin_pin.trim())) {
+      const pinError = validateAdminPin(formData.admin_pin.trim());
+      if (pinError) {
         setSaving(false);
-        setError("Admin PIN must be 4 to 6 digits");
+        setError(pinError);
         return;
       }
       adminPinHash = await hashPassword(formData.admin_pin.trim());
@@ -163,7 +197,7 @@ const RestaurantSettings: React.FC = () => {
     setSaving(false);
 
     if (updateError || !data) {
-      setError(updateError?.message || "Failed to save branding");
+      setError(getSafeErrorMessage(updateError, "Failed to save branding."));
       return;
     }
 
@@ -195,8 +229,12 @@ const RestaurantSettings: React.FC = () => {
       return;
     }
 
-    if (passwordData.new_password.length < 8) {
-      setPasswordError("New password must be at least 8 characters.");
+    const passwordValidation = validatePassword(
+      passwordData.new_password,
+      "New password"
+    );
+    if (passwordValidation) {
+      setPasswordError(passwordValidation);
       return;
     }
 
@@ -220,7 +258,9 @@ const RestaurantSettings: React.FC = () => {
     setPasswordSaving(false);
 
     if (changeError || !changed) {
-      setPasswordError(changeError?.message || "Failed to change password.");
+      setPasswordError(
+        getSafeErrorMessage(changeError, "Failed to change password.")
+      );
       return;
     }
 
@@ -264,6 +304,8 @@ const RestaurantSettings: React.FC = () => {
           message="Please change your temporary password."
         />
       )}
+
+      <BillingStatusCard restaurant={restaurant} />
 
       <div className="grid lg:grid-cols-2 gap-6">
         <Card>

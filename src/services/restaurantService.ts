@@ -6,16 +6,22 @@ import type {
   MenuItem,
   Restaurant,
 } from "../config/supabase";
+import { checkRateLimit, recordRateLimitAttempt } from "./securityService";
+import {
+  ALLOWED_IMAGE_TYPES,
+  MAX_IMAGE_BYTES,
+  getImageExtensionFromMime,
+  getSafeErrorMessage,
+  logErrorForDev,
+  validateImageBasic,
+  validateImageFile,
+} from "../utils/security";
 
 const getStoredRestaurantUser = () =>
   JSON.parse(localStorage.getItem("user") || "{}");
 
-export const MAX_RESTAURANT_IMAGE_BYTES = 3 * 1024 * 1024;
-export const ALLOWED_RESTAURANT_IMAGE_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-];
+export const MAX_RESTAURANT_IMAGE_BYTES = MAX_IMAGE_BYTES;
+export const ALLOWED_RESTAURANT_IMAGE_TYPES = ALLOWED_IMAGE_TYPES;
 
 export interface DailySalesSummary {
   total_orders: number;
@@ -35,15 +41,7 @@ export interface TopSellingItem {
 }
 
 export const validateRestaurantImage = (file: File) => {
-  if (!ALLOWED_RESTAURANT_IMAGE_TYPES.includes(file.type)) {
-    return "Only JPG, PNG, or WebP images are allowed.";
-  }
-
-  if (file.size > MAX_RESTAURANT_IMAGE_BYTES) {
-    return "Image must be less than 3 MB.";
-  }
-
-  return "";
+  return validateImageBasic(file);
 };
 
 const getStartOfTodayIso = () => {
@@ -109,11 +107,7 @@ export const subscribeToOrders = (
 // Update order status
 export const updateOrderStatus = async (
   orderId: string,
-  status: string,
-  paymentData?: {
-    paymentMethod?: string;
-    transactionId?: string;
-  }
+  status: string
 ) => {
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   if (user?.id && user?.restaurant_id) {
@@ -124,22 +118,10 @@ export const updateOrderStatus = async (
       p_status: status,
     });
 
-    return !error;
+    return { success: !error, error };
   }
 
-  const updateData: any = { status };
-
-  if (paymentData) {
-    updateData.payment_method = paymentData.paymentMethod;
-    updateData.payment_transaction_id = paymentData.transactionId;
-  }
-
-  const { error } = await supabase
-    .from("orders")
-    .update(updateData)
-    .eq("id", orderId);
-
-  return !error;
+  return { success: false, error: new Error("Restaurant session not found") };
 };
 
 // Subscribe to menu items with real-time updates
@@ -309,7 +291,7 @@ export const uploadRestaurantImage = async (
   file: File,
   folder: "menu" | "branding" = "menu"
 ) => {
-  const validationMessage = validateRestaurantImage(file);
+  const validationMessage = await validateImageFile(file);
   if (validationMessage) {
     return { url: null, error: new Error(validationMessage) };
   }
@@ -319,17 +301,30 @@ export const uploadRestaurantImage = async (
     return { url: null, error: new Error("Restaurant ID not found") };
   }
 
-  const extension = file.name.split(".").pop() || "jpg";
+  const limit = await checkRateLimit("image_upload", user.restaurant_id);
+  if (!limit.allowed) {
+    return {
+      url: null,
+      error: new Error("Too many upload attempts. Please wait and try again."),
+    };
+  }
+
+  const extension = getImageExtensionFromMime(file.type);
   const safeName = `${folder}/${user.restaurant_id}/${Date.now()}-${crypto.randomUUID()}.${extension}`;
   const { error } = await supabase.storage
     .from("menu-images")
     .upload(safeName, file, {
       cacheControl: "3600",
+      contentType: file.type,
       upsert: false,
     });
 
-  if (error) return { url: null, error };
+  if (error) {
+    await recordRateLimitAttempt("image_upload", user.restaurant_id, false);
+    return { url: null, error: new Error(getSafeErrorMessage(error, "Image upload failed. Please try another image.")) };
+  }
 
+  await recordRateLimitAttempt("image_upload", user.restaurant_id, true);
   const { data } = supabase.storage.from("menu-images").getPublicUrl(safeName);
   return { url: data.publicUrl, error: null };
 };
@@ -517,7 +512,7 @@ export const getRestaurantStats = async (restaurantId: string) => {
       recentOrders: recentOrders?.slice(0, 5) || [],
     };
   } catch (error) {
-    console.error("Error fetching restaurant stats:", error);
+    logErrorForDev(error, "getRestaurantStats");
     return {
       pendingOrders: 0,
       completedToday: 0,

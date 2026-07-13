@@ -50,6 +50,21 @@ export interface Restaurant {
   sgst_rate?: number;
   gst_enabled?: boolean;
   subscription_plan: "free_trial" | "starter" | "pro" | "enterprise";
+  subscription_status?:
+    | "trialing"
+    | "active"
+    | "past_due"
+    | "unpaid"
+    | "cancelled"
+    | "inactive";
+  stripe_customer_id?: string;
+  stripe_subscription_id?: string;
+  stripe_price_id?: string;
+  current_period_start?: string;
+  current_period_end?: string;
+  grace_until?: string;
+  last_payment_at?: string;
+  subscription_updated_at?: string;
   status: "active" | "blocked" | "trial";
   is_active: boolean;
   internal_notes?: string;
@@ -161,9 +176,24 @@ export interface CustomerOrderContext {
     | "is_active"
     | "theme_color"
     | "welcome_message"
+    | "subscription_status"
+    | "current_period_end"
+    | "grace_until"
   >;
   table: Pick<RestaurantTable, "id" | "table_number" | "is_active">;
   menu_items: MenuItem[];
+}
+
+export interface PasswordResetRequest {
+  id: string;
+  email: string;
+  restaurant_id?: string;
+  restaurant_name?: string;
+  status: "pending" | "approved" | "rejected" | "used";
+  created_at: string;
+  approved_at?: string;
+  approved_by?: string;
+  rejection_reason?: string;
 }
 
 export interface CustomerOrderItemInput {

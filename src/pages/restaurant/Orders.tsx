@@ -33,6 +33,7 @@ import type { TopSellingItem } from "../../services/restaurantService";
 import type { Order, OrderItem, Restaurant } from "../../config/supabase";
 import { supabase } from "../../config/supabase";
 import { formatCurrency, formatDateTime, playSound } from "../../utils/helpers";
+import { getSafeErrorMessage } from "../../utils/security";
 
 const NON_REVENUE_STATUSES = ["cancelled", "rejected"];
 
@@ -117,6 +118,7 @@ const Orders: React.FC = () => {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [selectedTableNumber, setSelectedTableNumber] = useState("");
   const [topItemsRange, setTopItemsRange] = useState("today");
+  const [statusError, setStatusError] = useState("");
   const [topItems, setTopItems] = useState<TopSellingItem[]>([]);
   const [dailySummary, setDailySummary] = useState({
     orderCount: 0,
@@ -247,10 +249,19 @@ const Orders: React.FC = () => {
     });
 
   const handleStatusUpdate = async (orderId: string, newStatus: string) => {
-    const success = await updateOrderStatus(orderId, newStatus);
-    if (!success) {
-      alert("Failed to update order status");
+    setStatusError("");
+    const result = await updateOrderStatus(orderId, newStatus);
+    if (!result.success) {
+      setStatusError(
+        getSafeErrorMessage(result.error, "Failed to update order status.")
+      );
+      return;
     }
+    setOrders((current) =>
+      current.map((order) =>
+        order.id === orderId ? { ...order, status: newStatus as Order["status"] } : order
+      )
+    );
   };
 
   const handleViewDetails = (order: Order) => {
@@ -474,6 +485,7 @@ const Orders: React.FC = () => {
         <div className="w-2 h-2 bg-success rounded-full animate-pulse" />
         <span>Live order updates - sound notifications enabled</span>
       </div>
+      {statusError && <Alert type="error" message={statusError} />}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <SummaryCard

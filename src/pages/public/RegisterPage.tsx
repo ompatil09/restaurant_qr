@@ -11,7 +11,16 @@ import {
 } from "../../components/ui";
 import { APP_CONFIG } from "../../config/config";
 import { supabase } from "../../config/supabase";
-import { isValidEmail, isValidPhone } from "../../utils/helpers";
+import {
+  cleanText,
+  getSafeErrorMessage,
+  logErrorForDev,
+  normalizeEmail,
+  normalizePhone,
+  validateEmail,
+  validatePhone,
+  validateTextLength,
+} from "../../utils/security";
 
 interface FormData {
   restaurant_name: string;
@@ -46,33 +55,35 @@ const RegisterPage: React.FC = () => {
   const validateForm = (): boolean => {
     const newErrors: Partial<FormData> = {};
 
-    if (!formData.restaurant_name.trim()) {
-      newErrors.restaurant_name = "Restaurant name is required";
-    }
+    newErrors.restaurant_name = validateTextLength(
+      formData.restaurant_name,
+      "Restaurant name",
+      2,
+      100
+    );
 
-    if (!formData.owner_name.trim()) {
-      newErrors.owner_name = "Owner name is required";
-    }
+    newErrors.owner_name = validateTextLength(
+      formData.owner_name,
+      "Owner name",
+      2,
+      100
+    );
 
-    if (!formData.phone.trim()) {
-      newErrors.phone = "Phone number is required";
-    } else if (!isValidPhone(formData.phone)) {
-      newErrors.phone = "Please enter a valid 10-digit phone number";
-    }
+    newErrors.phone = validatePhone(formData.phone);
 
-    if (!formData.email.trim()) {
-      newErrors.email = "Email is required";
-    } else if (!isValidEmail(formData.email)) {
-      newErrors.email = "Please enter a valid email address";
-    }
+    newErrors.email = validateEmail(formData.email);
 
-    if (!formData.city.trim()) {
-      newErrors.city = "City is required";
-    }
+    newErrors.city = validateTextLength(formData.city, "City", 2, 80);
 
     if (!formData.restaurant_type) {
       newErrors.restaurant_type = "Restaurant type is required";
     }
+
+    Object.keys(newErrors).forEach((key) => {
+      if (!newErrors[key as keyof FormData]) {
+        delete newErrors[key as keyof FormData];
+      }
+    });
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -89,24 +100,20 @@ const RegisterPage: React.FC = () => {
     setLoading(true);
 
     try {
-      // Insert registration request into Supabase
-      const { error: insertError } = await supabase
-        .from("registration_requests")
-        .insert([
-          {
-            restaurant_name: formData.restaurant_name.trim(),
-            owner_name: formData.owner_name.trim(),
-            phone: formData.phone.replace(/[\s\-()]/g, ""),
-            email: formData.email.trim() || null,
-            city: formData.city.trim(),
-            address: formData.address.trim() || null,
-            restaurant_type: formData.restaurant_type,
-            heard_from: formData.heard_from || null,
-            notes: formData.notes.trim() || null,
-            status: "pending",
-          },
-        ])
-        .select();
+      const { error: insertError } = await supabase.rpc(
+        "submit_registration_request",
+        {
+          p_restaurant_name: cleanText(formData.restaurant_name, 100),
+          p_owner_name: cleanText(formData.owner_name, 100),
+          p_phone: normalizePhone(formData.phone),
+          p_email: normalizeEmail(formData.email),
+          p_city: cleanText(formData.city, 80),
+          p_address: cleanText(formData.address, 250) || null,
+          p_restaurant_type: cleanText(formData.restaurant_type, 80),
+          p_heard_from: cleanText(formData.heard_from, 80) || null,
+          p_notes: cleanText(formData.notes, 500) || null,
+        }
+      );
 
       if (insertError) {
         throw insertError;
@@ -118,9 +125,12 @@ const RegisterPage: React.FC = () => {
       // TODO: In production, send confirmation email to restaurant
       // TODO: Send notification to admin panel
     } catch (err: any) {
-      console.error("Registration error:", err);
+      logErrorForDev(err, "submit_registration_request");
       setError(
-        err.message || "Failed to submit registration. Please try again."
+        getSafeErrorMessage(
+          err,
+          "Failed to submit registration. Please try again."
+        )
       );
     } finally {
       setLoading(false);

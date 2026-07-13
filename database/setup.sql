@@ -1295,6 +1295,8 @@ CREATE POLICY "Anon can upload menu images"
 -- =====================================================
 -- INSERT DEFAULT ADMIN USER
 -- =====================================================
+-- Development-only bootstrap account. Change this password or replace this
+-- account before production.
 -- Email: admin@foodorder.com
 -- Password: admin123
 -- Hash: SHA-256 of "admin123"

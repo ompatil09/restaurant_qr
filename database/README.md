@@ -121,7 +121,9 @@ INSERT INTO registration_requests (restaurant_name, ...) VALUES (...);
 2. Create a new order from customer page in Browser 2
 3. Watch new order appear instantly in Browser 1 with sound notification ✨
 
-## Default Admin Credentials
+## Development-Only Default Admin Credentials
+
+These are bootstrap-only local credentials. Change or replace this account before production.
 
 ```
 Email: admin@foodbooking.com

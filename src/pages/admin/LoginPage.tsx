@@ -4,6 +4,16 @@ import { Shield, ArrowLeft, Mail, Lock } from "lucide-react";
 import { Button, Input, Alert, Card } from "../../components/ui";
 import { supabase } from "../../config/supabase";
 import { isValidEmail, hashPassword } from "../../utils/helpers";
+import {
+  getSafeErrorMessage,
+  logErrorForDev,
+  normalizeEmail,
+} from "../../utils/security";
+import {
+  checkRateLimit,
+  clearRateLimit,
+  recordRateLimitAttempt,
+} from "../../services/securityService";
 
 const AdminLogin: React.FC = () => {
   const navigate = useNavigate();
@@ -31,24 +41,34 @@ const AdminLogin: React.FC = () => {
     setLoading(true);
 
     try {
+      const email = normalizeEmail(formData.email);
+      const limit = await checkRateLimit("admin_login", email);
+      if (!limit.allowed) {
+        setError("Too many attempts. Please wait and try again.");
+        setLoading(false);
+        return;
+      }
+
       // Hash password and use RPC function for admin login
       const passwordHash = await hashPassword(formData.password);
       const { data: adminData, error: adminError } = await supabase.rpc(
         "admin_login",
         {
-          p_email: formData.email.toLowerCase(),
+          p_email: email,
           p_password_hash: passwordHash,
         }
       );
 
       if (adminError) {
-        console.error("Admin login RPC error:", adminError);
-        setError("Invalid email or password");
+        logErrorForDev(adminError, "admin_login");
+        await recordRateLimitAttempt("admin_login", email, false);
+        setError(getSafeErrorMessage(adminError, "Invalid email or password."));
         setLoading(false);
         return;
       }
 
       if (!adminData || adminData.length === 0) {
+        await recordRateLimitAttempt("admin_login", email, false);
         setError("Invalid email or password");
         setLoading(false);
         return;
@@ -57,6 +77,7 @@ const AdminLogin: React.FC = () => {
       const admin = adminData[0];
 
       // Login successful - store admin data
+      await clearRateLimit("admin_login", email);
       localStorage.setItem(
         "admin",
         JSON.stringify({
@@ -69,8 +90,8 @@ const AdminLogin: React.FC = () => {
       // Redirect to admin dashboard
       navigate("/admin");
     } catch (err: any) {
-      console.error("Admin login error:", err);
-      setError("An error occurred. Please try again.");
+      logErrorForDev(err, "admin_login");
+      setError(getSafeErrorMessage(err, "An error occurred. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -139,16 +160,6 @@ const AdminLogin: React.FC = () => {
             </Button>
           </form>
 
-          {/* Info Box */}
-          <div className="mt-6 p-4 bg-bg-subtle rounded-lg">
-            <p className="text-sm text-text-secondary">
-              <strong>Default credentials:</strong>
-              <br />
-              Email: admin@foodorder.com
-              <br />
-              Password: admin123
-            </p>
-          </div>
         </Card>
       </div>
     </div>

@@ -6,6 +6,7 @@ import {
   hashPassword,
   isValidEmail,
 } from "../utils/helpers";
+import { getSafeErrorMessage, logErrorForDev } from "../utils/security";
 
 /**
  * Admin API Service
@@ -108,7 +109,7 @@ export const createRestaurantAccount = async (
     );
 
     if (rpcError) {
-      console.error("RPC error:", rpcError);
+      logErrorForDev(rpcError, "admin_create_restaurant");
       throw new Error(getCreateAccountErrorMessage(rpcError.message));
     }
 
@@ -134,10 +135,10 @@ export const createRestaurantAccount = async (
       },
     };
   } catch (error: any) {
-    console.error("Create account error:", error);
+    logErrorForDev(error, "createRestaurantAccount");
     return {
       success: false,
-      error: error.message || "Failed to create account",
+      error: getSafeErrorMessage(error, "Failed to create account"),
     };
   }
 };
@@ -158,7 +159,7 @@ const getCreateAccountErrorMessage = (message = "") => {
     return "This registration request has already been approved.";
   }
 
-  return message || "Failed to create account";
+  return getSafeErrorMessage(message, "Failed to create account");
 };
 
 // Reject registration request
@@ -262,7 +263,7 @@ export const getPlatformStats = async () => {
       todayRevenue,
     };
   } catch (error) {
-    console.error("Error fetching stats:", error);
+    logErrorForDev(error, "getAdminStats");
     return {
       activeRestaurants: 0,
       pendingRequests: 0,

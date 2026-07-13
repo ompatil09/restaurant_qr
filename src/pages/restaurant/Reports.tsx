@@ -13,6 +13,7 @@ import {
   getRestaurantOrdersForRange,
   getTopSellingItems,
 } from "../../services/restaurantService";
+import { logErrorForDev } from "../../utils/security";
 
 interface ReportData {
   totalRevenue: number;
@@ -104,7 +105,7 @@ const Reports: React.FC = () => {
         ),
       });
     } catch (error) {
-      console.error("Error fetching report data:", error);
+      logErrorForDev(error, "fetchReportData");
       setReportData(null);
     } finally {
       setLoading(false);

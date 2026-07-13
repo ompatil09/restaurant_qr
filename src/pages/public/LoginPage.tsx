@@ -5,6 +5,16 @@ import { Button, Input, Alert, Card } from "../../components/ui";
 import { APP_CONFIG } from "../../config/config";
 import { supabase } from "../../config/supabase";
 import { isValidEmail, hashPassword } from "../../utils/helpers";
+import {
+  getSafeErrorMessage,
+  logErrorForDev,
+  normalizeEmail,
+} from "../../utils/security";
+import {
+  checkRateLimit,
+  clearRateLimit,
+  recordRateLimitAttempt,
+} from "../../services/securityService";
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -32,20 +42,29 @@ const LoginPage: React.FC = () => {
     setLoading(true);
 
     try {
+      const email = normalizeEmail(formData.email);
+      const limit = await checkRateLimit("restaurant_login", email);
+      if (!limit.allowed) {
+        setError("Too many attempts. Please wait and try again.");
+        setLoading(false);
+        return;
+      }
+
       // Use RPC function for restaurant login (bypasses RLS issues)
       const passwordHash = await hashPassword(formData.password);
 
       const { data: loginData, error: loginError } = await supabase.rpc(
         "restaurant_login",
         {
-          p_email: formData.email.toLowerCase(),
+          p_email: email,
           p_password_hash: passwordHash,
         }
       );
 
       if (loginError) {
-        console.error("Login RPC error:", loginError);
-        setError("Login failed. Please try again.");
+        logErrorForDev(loginError, "restaurant_login");
+        await recordRateLimitAttempt("restaurant_login", email, false);
+        setError(getSafeErrorMessage(loginError, "Invalid email or password."));
         setLoading(false);
         return;
       }
@@ -55,7 +74,7 @@ const LoginPage: React.FC = () => {
         const { data: registrationData } = await supabase
           .from("registration_requests")
           .select("status")
-          .eq("email", formData.email.toLowerCase())
+          .eq("email", email)
           .single();
 
         if (registrationData && registrationData.status === "pending") {
@@ -64,6 +83,7 @@ const LoginPage: React.FC = () => {
           return;
         }
 
+        await recordRateLimitAttempt("restaurant_login", email, false);
         setError("Invalid email or password");
         setLoading(false);
         return;
@@ -79,6 +99,8 @@ const LoginPage: React.FC = () => {
         setLoading(false);
         return;
       }
+
+      await clearRateLimit("restaurant_login", email);
 
       // Login successful - store user data in localStorage
       localStorage.setItem(
@@ -100,8 +122,10 @@ const LoginPage: React.FC = () => {
       // Redirect to restaurant dashboard
       navigate("/restaurant");
     } catch (err: any) {
-      console.error("Login error:", err);
-      setError("Network error. Please check your connection.");
+      logErrorForDev(err, "restaurant_login");
+      setError(
+        getSafeErrorMessage(err, "Network error. Please check your connection.")
+      );
     } finally {
       setLoading(false);
     }
@@ -153,22 +177,6 @@ const LoginPage: React.FC = () => {
             <Alert type="error" message={error} className="mb-6" />
           )}
 
-          {/* Demo Credentials */}
-          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-sm font-semibold text-blue-800 mb-2">
-              🎯 Demo Account - Try it out!
-            </p>
-            <div className="text-sm text-blue-700 space-y-1">
-              <p>
-                <span className="font-medium">Email:</span>{" "}
-                demorestaurant@gmail.com
-              </p>
-              <p>
-                <span className="font-medium">Password:</span> ATVSW679
-              </p>
-            </div>
-          </div>
-
           {/* Login Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <Input
@@ -200,9 +208,9 @@ const LoginPage: React.FC = () => {
                 <input type="checkbox" className="mr-2 rounded border-border" />
                 Remember me
               </label>
-              <a href="#" className="text-accent hover:underline">
+              <Link to="/forgot-password" className="text-accent hover:underline">
                 Forgot password?
-              </a>
+              </Link>
             </div>
 
             <Button type="submit" loading={loading} fullWidth size="lg">

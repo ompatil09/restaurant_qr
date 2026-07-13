@@ -20,6 +20,9 @@ import Menu from "./Menu";
 import Tables from "./Tables";
 import RestaurantSettings from "./RestaurantSettings";
 import Reports from "./Reports";
+import { Alert, Card } from "../../components/ui";
+import { supabase } from "../../config/supabase";
+import { getRestaurantAccessStatus } from "../../services/subscriptionService";
 
 const RestaurantDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -34,11 +37,14 @@ const RestaurantDashboard: React.FC = () => {
     } else {
       const parsedUser = JSON.parse(userData);
       setUser(parsedUser);
-      // In real app, fetch restaurant data
-      setRestaurant({
-        name: "Demo Restaurant",
-        slug: "demo-restaurant",
-      });
+      if (parsedUser.restaurant_id) {
+        supabase
+          .from("restaurants")
+          .select("*")
+          .eq("id", parsedUser.restaurant_id)
+          .single()
+          .then(({ data }) => setRestaurant(data));
+      }
     }
   }, [navigate]);
 
@@ -48,6 +54,9 @@ const RestaurantDashboard: React.FC = () => {
   };
 
   if (!user) return null;
+
+  const access = getRestaurantAccessStatus(restaurant);
+  const isSettingsRoute = location.pathname === "/restaurant/settings";
 
   const navItems = [
     { path: "/restaurant", icon: ShoppingBag, label: "Live Orders" },
@@ -110,14 +119,36 @@ const RestaurantDashboard: React.FC = () => {
 
       {/* Main Content */}
       <div className="container-custom py-8">
-        <Routes>
-          <Route index element={<Orders />} />
-          <Route path="orders" element={<Orders />} />
-          <Route path="menu" element={<Menu />} />
-          <Route path="tables" element={<Tables />} />
-          <Route path="reports" element={<Reports />} />
-          <Route path="settings" element={<RestaurantSettings />} />
-        </Routes>
+        {access.state === "grace" && access.message && (
+          <Alert type="warning" message={access.message} className="mb-6" />
+        )}
+
+        {access.state === "locked" && !isSettingsRoute ? (
+          <Card className="max-w-2xl mx-auto text-center py-12">
+            <h2 className="text-2xl font-bold text-text mb-3">
+              Payment Required
+            </h2>
+            <p className="text-text-secondary mb-6">
+              Your restaurant data is safe. Renew your ₹1000/month plan to
+              restore orders, menu management, QR ordering, and reports.
+            </p>
+            <Link
+              to="/restaurant/settings"
+              className="inline-flex items-center justify-center rounded-lg bg-accent px-6 py-3 font-semibold text-white hover:bg-accent/90"
+            >
+              Go to Billing
+            </Link>
+          </Card>
+        ) : (
+          <Routes>
+            <Route index element={<Orders />} />
+            <Route path="orders" element={<Orders />} />
+            <Route path="menu" element={<Menu />} />
+            <Route path="tables" element={<Tables />} />
+            <Route path="reports" element={<Reports />} />
+            <Route path="settings" element={<RestaurantSettings />} />
+          </Routes>
+        )}
       </div>
     </div>
   );

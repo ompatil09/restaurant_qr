@@ -25,6 +25,12 @@ import {
 } from "../../services/restaurantService";
 import type { MenuItem } from "../../config/supabase";
 import { formatCurrency, isValidPhone } from "../../utils/helpers";
+import {
+  cleanText,
+  getSafeErrorMessage,
+  validateTextLength,
+} from "../../utils/security";
+import { getRestaurantAccessStatus } from "../../services/subscriptionService";
 
 interface CartItem extends MenuItem {
   quantity: number;
@@ -46,6 +52,9 @@ interface RestaurantContext {
   logo_url?: string;
   theme_color?: string;
   welcome_message?: string;
+  subscription_status?: "trialing" | "active" | "past_due" | "unpaid" | "cancelled" | "inactive";
+  current_period_end?: string;
+  grace_until?: string;
   is_active: boolean;
 }
 
@@ -106,9 +115,21 @@ const CustomerMenu: React.FC = () => {
 
       if (contextError || !data) {
         setError(
-          contextError?.message ||
+          getSafeErrorMessage(
+            contextError,
             "This table ordering link is invalid or inactive."
+          )
         );
+        setLoading(false);
+        return;
+      }
+
+      const access = getRestaurantAccessStatus(data.restaurant);
+      if (!access.canUseOrdering) {
+        setError("Ordering is currently unavailable for this restaurant.");
+        setRestaurant(data.restaurant);
+        setTable(data.table);
+        setMenuItems([]);
         setLoading(false);
         return;
       }
@@ -291,9 +312,9 @@ const CustomerMenu: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-28">
-      <header className="bg-white border-b border-gray-100 sticky top-0 z-40">
-        <div className="max-w-screen-lg mx-auto px-4 py-3">
+    <div className="min-h-screen bg-[#f8f3ed] pb-28 text-[#261b14]">
+      <header className="bg-[#fffaf4]/95 backdrop-blur border-b border-[#eadfD2] sticky top-0 z-40 shadow-sm">
+        <div className="max-w-screen-lg mx-auto px-4 py-4">
           <div className="flex items-center gap-3 mb-3">
             <LazyImage
               src={restaurant.logo_url}
@@ -301,17 +322,17 @@ const CustomerMenu: React.FC = () => {
               className="w-12 h-12 rounded-lg flex-shrink-0"
             />
             <div className="min-w-0">
-              <h1 className="font-bold text-lg text-gray-900 truncate">
+              <h1 className="font-bold text-xl text-[#231811] truncate">
                 {restaurant.name}
               </h1>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm font-medium text-[#7a5c46]">
                 Table {table.table_number}
               </p>
             </div>
           </div>
 
           {restaurant.welcome_message && (
-            <p className="text-sm text-gray-600 mb-3">
+            <p className="text-sm text-[#6d5543] mb-3 leading-relaxed">
               {restaurant.welcome_message}
             </p>
           )}
@@ -323,13 +344,13 @@ const CustomerMenu: React.FC = () => {
               placeholder="Search dishes, descriptions, categories"
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
-              className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-accent/20"
+              className="w-full pl-10 pr-4 py-3.5 border border-[#e5d8ca] bg-white rounded-xl text-sm shadow-inner focus:outline-none focus:ring-2 focus:ring-[#8b5e34]/20"
             />
           </div>
         </div>
       </header>
 
-      <div className="bg-white border-b sticky top-[129px] z-30">
+      <div className="bg-[#fffaf4]/95 backdrop-blur border-b border-[#eadfd2] sticky top-[145px] z-30">
         <div className="max-w-screen-lg mx-auto px-4">
           <div className="flex gap-2 overflow-x-auto py-2">
             {categories.map((category) => (
@@ -345,7 +366,7 @@ const CustomerMenu: React.FC = () => {
                 className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap ${
                   categoryFilter === category
                     ? ""
-                    : "bg-gray-100 text-gray-600"
+                    : "bg-white text-[#755c49] border border-[#eadfd2]"
                 }`}
               >
                 {category === "all" ? "All" : category}
@@ -366,7 +387,7 @@ const CustomerMenu: React.FC = () => {
                 className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap ${
                   foodTypeFilter === filter.value
                     ? ""
-                    : "bg-gray-50 text-gray-600 border border-gray-200"
+                    : "bg-white text-[#755c49] border border-[#eadfd2]"
                 }`}
               >
                 {filter.label}
@@ -377,7 +398,7 @@ const CustomerMenu: React.FC = () => {
       </div>
 
       <main className="max-w-screen-lg mx-auto px-4 py-4">
-        <div className="mb-4 rounded-lg bg-white border border-gray-100 px-3 py-2 text-xs text-gray-600">
+        <div className="mb-4 rounded-xl bg-[#fffaf4] border border-[#eadfd2] px-4 py-3 text-xs font-medium text-[#7a5c46] shadow-sm">
           Prices shown are excluding GST. CGST/SGST may be added in final bill.
         </div>
 
@@ -401,7 +422,7 @@ const CustomerMenu: React.FC = () => {
               return (
                 <article
                   key={item.id}
-                  className="bg-white rounded-lg border border-gray-100 overflow-hidden shadow-sm"
+                  className="bg-[#fffaf4] rounded-2xl border border-[#eadfd2] overflow-hidden shadow-sm"
                 >
                   <div className="flex gap-3 p-3">
                     <LazyImage
@@ -414,7 +435,7 @@ const CustomerMenu: React.FC = () => {
                       <div className="min-h-[66px]">
                         <div className="flex flex-wrap items-center gap-1.5 mb-1">
                           {item.category && (
-                            <span className="text-xs font-medium text-gray-500">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[#947258]">
                               {item.category}
                             </span>
                           )}
@@ -426,35 +447,35 @@ const CustomerMenu: React.FC = () => {
                             {getFoodTypeLabel(item.food_type)}
                           </span>
                         </div>
-                        <h2 className="font-semibold text-gray-900 leading-snug">
+                        <h2 className="font-bold text-[#261b14] leading-snug">
                           {item.name}
                         </h2>
                         <div className="flex flex-wrap gap-1 mt-1">
                           {item.is_best_seller && (
-                            <span className="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-semibold">
+                            <span className="text-[10px] bg-[#fff1cf] text-[#9a6200] px-1.5 py-0.5 rounded font-semibold">
                               Best Seller
                             </span>
                           )}
                           {item.is_recommended && (
-                            <span className="text-[10px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded font-semibold">
+                            <span className="text-[10px] bg-[#efe7dc] text-[#6a4b31] px-1.5 py-0.5 rounded font-semibold">
                               Recommended
                             </span>
                           )}
                           {item.tag_label && (
-                            <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-semibold">
+                            <span className="text-[10px] bg-white text-[#755c49] px-1.5 py-0.5 rounded font-semibold border border-[#eadfd2]">
                               {item.tag_label}
                             </span>
                           )}
                         </div>
                         {item.description && (
-                          <p className="text-xs text-gray-500 line-clamp-2 mt-1">
+                          <p className="text-xs text-[#7a6656] line-clamp-2 mt-1 leading-relaxed">
                             {item.description}
                           </p>
                         )}
                       </div>
 
                       <div className="flex items-end justify-between gap-3 mt-3">
-                        <p className="font-bold text-gray-900">
+                        <p className="font-bold text-[#261b14]">
                           {item.sizes?.length
                             ? `From ${formatCurrency(
                                 Math.min(...item.sizes.map((s) => s.price))
@@ -469,7 +490,7 @@ const CustomerMenu: React.FC = () => {
                               hasOptions ? setSelectedItem(item) : addToCart(item)
                             }
                             style={{ borderColor: themeColor, color: themeColor }}
-                            className="px-4 py-2 border-2 font-bold text-xs rounded-md"
+                            className="px-4 py-2 border-2 font-bold text-xs rounded-lg bg-white shadow-sm"
                           >
                             ADD
                           </button>
@@ -546,26 +567,27 @@ const CustomerMenu: React.FC = () => {
       />
 
       {cartCount > 0 && (
-        <div
-          className="fixed bottom-0 left-0 right-0 text-white shadow-[0_-2px_20px_rgba(0,0,0,0.15)] z-40"
-          style={{ backgroundColor: themeColor }}
-        >
+        <div className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-3">
           <button
             type="button"
             onClick={() => setShowCart(true)}
-            className="max-w-screen-lg mx-auto w-full px-4 py-3.5 flex items-center justify-between"
+            style={{ backgroundColor: themeColor }}
+            className="max-w-screen-lg mx-auto w-full px-4 py-4 flex items-center justify-between text-white rounded-2xl shadow-[0_-8px_30px_rgba(38,27,20,0.2)]"
           >
             <div className="flex items-center gap-3">
-              <div className="bg-white text-accent font-bold text-sm w-7 h-7 rounded flex items-center justify-center">
+              <div className="bg-white/95 text-[#261b14] font-bold text-sm w-9 h-9 rounded-xl flex items-center justify-center">
                 {cartCount}
               </div>
-              <span className="font-bold text-base">
-                {formatCurrency(cartSubtotal)}
-              </span>
+              <div className="text-left">
+                <p className="text-xs text-white/80">Cart subtotal</p>
+                <span className="font-bold text-base">
+                  {formatCurrency(cartSubtotal)}
+                </span>
+              </div>
             </div>
             <div className="flex items-center gap-2 font-semibold text-sm">
               <ShoppingCart className="w-4 h-4" />
-              <span>View Cart</span>
+              <span>Review Order</span>
             </div>
           </button>
         </div>
@@ -846,13 +868,26 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
       return;
     }
 
+    const nameError = validateTextLength(
+      customerName,
+      "Customer name",
+      0,
+      100,
+      false
+    );
+    const notesError = validateTextLength(notes, "Customer notes", 0, 300, false);
+    if (nameError || notesError) {
+      setError(nameError || notesError);
+      return;
+    }
+
     setLoading(true);
     const { error: orderError } = await createCustomerOrder({
       restaurant_slug: restaurantSlug,
       table_token: tableToken,
-      customer_name: customerName.trim() || undefined,
+      customer_name: cleanText(customerName, 100) || undefined,
       customer_phone: customerPhone.trim() || undefined,
-      customer_notes: notes.trim() || undefined,
+      customer_notes: cleanText(notes, 300) || undefined,
       items: cart.map((item) => ({
         menu_item_id: item.id,
         quantity: item.quantity,
@@ -863,7 +898,12 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
     setLoading(false);
 
     if (orderError) {
-      setError(orderError.message || "Failed to place order.");
+      setError(
+        getSafeErrorMessage(
+          orderError,
+          "Unable to place order. Please call the waiter."
+        )
+      );
       return;
     }
 
