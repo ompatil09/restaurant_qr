@@ -34,6 +34,15 @@ interface FormData {
   notes: string;
 }
 
+const isMissingRegistrationRpc = (error: any) => {
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    error?.code === "PGRST202" ||
+    (message.includes("submit_registration_request") &&
+      (message.includes("schema cache") || message.includes("function")))
+  );
+};
+
 const RegisterPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -100,23 +109,45 @@ const RegisterPage: React.FC = () => {
     setLoading(true);
 
     try {
+      const registrationPayload = {
+        restaurant_name: cleanText(formData.restaurant_name, 100),
+        owner_name: cleanText(formData.owner_name, 100),
+        phone: normalizePhone(formData.phone),
+        email: normalizeEmail(formData.email),
+        city: cleanText(formData.city, 80),
+        address: cleanText(formData.address, 250) || null,
+        restaurant_type: cleanText(formData.restaurant_type, 80),
+        heard_from: cleanText(formData.heard_from, 80) || null,
+        notes: cleanText(formData.notes, 500) || null,
+      };
+
       const { error: insertError } = await supabase.rpc(
         "submit_registration_request",
         {
-          p_restaurant_name: cleanText(formData.restaurant_name, 100),
-          p_owner_name: cleanText(formData.owner_name, 100),
-          p_phone: normalizePhone(formData.phone),
-          p_email: normalizeEmail(formData.email),
-          p_city: cleanText(formData.city, 80),
-          p_address: cleanText(formData.address, 250) || null,
-          p_restaurant_type: cleanText(formData.restaurant_type, 80),
-          p_heard_from: cleanText(formData.heard_from, 80) || null,
-          p_notes: cleanText(formData.notes, 500) || null,
+          p_restaurant_name: registrationPayload.restaurant_name,
+          p_owner_name: registrationPayload.owner_name,
+          p_phone: registrationPayload.phone,
+          p_email: registrationPayload.email,
+          p_city: registrationPayload.city,
+          p_address: registrationPayload.address,
+          p_restaurant_type: registrationPayload.restaurant_type,
+          p_heard_from: registrationPayload.heard_from,
+          p_notes: registrationPayload.notes,
         }
       );
 
       if (insertError) {
-        throw insertError;
+        if (!isMissingRegistrationRpc(insertError)) {
+          throw insertError;
+        }
+
+        const { error: fallbackError } = await supabase
+          .from("registration_requests")
+          .insert([{ ...registrationPayload, status: "pending" }]);
+
+        if (fallbackError) {
+          throw fallbackError;
+        }
       }
 
       // Success!
