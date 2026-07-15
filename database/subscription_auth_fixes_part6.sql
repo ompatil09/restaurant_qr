@@ -50,7 +50,7 @@ BEGIN
 
   RETURN FALSE;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, extensions;
 
 GRANT EXECUTE ON FUNCTION restaurant_subscription_allows_ordering(UUID) TO anon, authenticated;
 
@@ -126,7 +126,7 @@ BEGIN
   PERFORM record_rate_limit_attempt('password_change', v_identifier_hash, TRUE);
   RETURN TRUE;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions;
 
 CREATE OR REPLACE FUNCTION admin_approve_password_reset(
   p_request_id UUID,
@@ -190,7 +190,7 @@ BEGIN
 
   RETURN QUERY SELECT TRUE, v_user.email, v_restaurant.name, 'Temporary password generated';
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions;
 
 CREATE OR REPLACE FUNCTION admin_reject_password_reset(
   p_request_id UUID,
@@ -213,11 +213,13 @@ BEGIN
 
   RETURN FOUND;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions;
 
 GRANT EXECUTE ON FUNCTION request_password_reset(TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION admin_approve_password_reset(UUID, UUID, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION admin_reject_password_reset(UUID, UUID, TEXT) TO anon, authenticated;
+
+DROP FUNCTION IF EXISTS restaurant_login(TEXT, TEXT);
 
 CREATE OR REPLACE FUNCTION restaurant_login(
   p_email TEXT,
@@ -273,7 +275,7 @@ BEGIN
     PERFORM clear_rate_limit('restaurant_login', v_identifier_hash);
   END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions;
 
 CREATE OR REPLACE FUNCTION restaurant_change_password(
   p_user_id UUID,
@@ -325,7 +327,7 @@ BEGIN
   PERFORM clear_rate_limit('password_change', v_identifier_hash);
   RETURN TRUE;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions;
 
 GRANT EXECUTE ON FUNCTION restaurant_login(TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION restaurant_change_password(UUID, UUID, TEXT, TEXT, BOOLEAN) TO anon, authenticated;
@@ -387,7 +389,7 @@ BEGIN
     'menu_items', v_menu_items
   );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions;
 
 GRANT EXECUTE ON FUNCTION get_customer_order_context(TEXT, TEXT) TO anon, authenticated;
 
@@ -424,7 +426,7 @@ BEGIN
 
   RETURN TRUE;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions;
 
 GRANT EXECUTE ON FUNCTION restaurant_update_order_status(UUID, UUID, UUID, TEXT) TO anon, authenticated;
 
@@ -614,7 +616,7 @@ BEGIN
     'total', v_total
   );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions;
 
 GRANT EXECUTE ON FUNCTION create_customer_order(TEXT, TEXT, JSONB, TEXT, TEXT, TEXT) TO anon, authenticated;
 

@@ -20,6 +20,9 @@ const BillingStatusCard: React.FC<BillingStatusCardProps> = ({ restaurant }) => 
   const [loading, setLoading] = useState<"checkout" | "portal" | "">("");
   const access = getRestaurantAccessStatus(restaurant);
   const status = restaurant.subscription_status || "active";
+  const canStartSubscription =
+    !restaurant.stripe_subscription_id ||
+    ["cancelled", "inactive"].includes(status);
 
   const startCheckout = async () => {
     setError("");
@@ -74,13 +77,15 @@ const BillingStatusCard: React.FC<BillingStatusCardProps> = ({ restaurant }) => 
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row">
-        <Button
-          onClick={startCheckout}
-          loading={loading === "checkout"}
-          icon={<CreditCard className="w-4 h-4" />}
-        >
+        {canStartSubscription && (
+          <Button
+            onClick={startCheckout}
+            loading={loading === "checkout"}
+            icon={<CreditCard className="w-4 h-4" />}
+          >
           Pay ₹1000/month
-        </Button>
+          </Button>
+        )}
         {restaurant.stripe_customer_id && (
           <Button
             variant="outline"

@@ -92,7 +92,7 @@ BEGIN
       ELSE 0
     END::INTEGER;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, extensions;
 
 CREATE OR REPLACE FUNCTION check_rate_limit(
   p_action TEXT,
@@ -146,7 +146,7 @@ BEGIN
 
   RETURN QUERY SELECT TRUE, 0, NULL::TIMESTAMPTZ;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions;
 
 CREATE OR REPLACE FUNCTION record_rate_limit_attempt(
   p_action TEXT,
@@ -219,7 +219,7 @@ BEGIN
 
   RETURN QUERY SELECT * FROM check_rate_limit(p_action, p_identifier_hash);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions;
 
 CREATE OR REPLACE FUNCTION clear_rate_limit(
   p_action TEXT,
@@ -231,7 +231,7 @@ BEGIN
   WHERE action = p_action AND identifier_hash = p_identifier_hash;
   RETURN TRUE;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions;
 
 GRANT EXECUTE ON FUNCTION check_rate_limit(TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION record_rate_limit_attempt(TEXT, TEXT, BOOLEAN) TO anon, authenticated;
@@ -240,6 +240,8 @@ GRANT EXECUTE ON FUNCTION clear_rate_limit(TEXT, TEXT) TO anon, authenticated;
 -- ---------------------------------------------------------------------------
 -- Login RPCs with database-enforced rate limiting.
 -- ---------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS restaurant_login(TEXT, TEXT);
+
 CREATE OR REPLACE FUNCTION admin_login(
   p_email TEXT,
   p_password_hash TEXT
@@ -280,7 +282,7 @@ BEGIN
     PERFORM clear_rate_limit('admin_login', v_identifier_hash);
   END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions;
 
 CREATE OR REPLACE FUNCTION restaurant_login(
   p_email TEXT,
@@ -336,7 +338,7 @@ BEGIN
     PERFORM clear_rate_limit('restaurant_login', v_identifier_hash);
   END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions;
 
 GRANT EXECUTE ON FUNCTION admin_login(TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION restaurant_login(TEXT, TEXT) TO anon, authenticated;
@@ -425,7 +427,7 @@ EXCEPTION
     PERFORM record_rate_limit_attempt('registration', v_identifier_hash, FALSE);
     RAISE EXCEPTION 'Registration could not be submitted';
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions;
 
 GRANT EXECUTE ON FUNCTION submit_registration_request(TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT)
 TO anon, authenticated;
@@ -483,7 +485,7 @@ BEGIN
   PERFORM clear_rate_limit('password_change', v_identifier_hash);
   RETURN TRUE;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions;
 
 GRANT EXECUTE ON FUNCTION restaurant_change_password(UUID, UUID, TEXT, TEXT, BOOLEAN) TO anon, authenticated;
 
@@ -709,7 +711,7 @@ BEGIN
     'total', v_total
   );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions;
 
 GRANT EXECUTE ON FUNCTION create_customer_order(TEXT, TEXT, JSONB, TEXT, TEXT, TEXT) TO anon, authenticated;
 

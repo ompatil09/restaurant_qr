@@ -3,18 +3,12 @@ import { Link, useNavigate } from "react-router-dom";
 import { Store, ArrowLeft, Mail, Lock, AlertCircle } from "lucide-react";
 import { Button, Input, Alert, Card } from "../../components/ui";
 import { APP_CONFIG } from "../../config/config";
-import { supabase } from "../../config/supabase";
-import { isValidEmail, hashPassword } from "../../utils/helpers";
+import { isValidEmail } from "../../utils/helpers";
 import {
   getSafeErrorMessage,
   logErrorForDev,
   normalizeEmail,
 } from "../../utils/security";
-import {
-  checkRateLimit,
-  clearRateLimit,
-  recordRateLimitAttempt,
-} from "../../services/securityService";
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -43,85 +37,31 @@ const LoginPage: React.FC = () => {
 
     try {
       const email = normalizeEmail(formData.email);
-      const limit = await checkRateLimit("restaurant_login", email);
-      if (!limit.allowed) {
-        setError("Too many attempts. Please wait and try again.");
-        setLoading(false);
+      const response = await fetch("/.netlify/functions/restaurant-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password: formData.password }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.status === 202 && payload?.status === "pending") {
+        setError("pending");
+        return;
+      }
+      if (!response.ok || !payload?.user || !payload?.sessionToken) {
+        setError(payload?.error || "Invalid email or password.");
         return;
       }
 
-      // Use RPC function for restaurant login (bypasses RLS issues)
-      const passwordHash = await hashPassword(formData.password);
-
-      const { data: loginData, error: loginError } = await supabase.rpc(
-        "restaurant_login",
-        {
-          p_email: email,
-          p_password_hash: passwordHash,
-        }
-      );
-
-      if (loginError) {
-        logErrorForDev(loginError, "restaurant_login");
-        await recordRateLimitAttempt("restaurant_login", email, false);
-        setError(getSafeErrorMessage(loginError, "Invalid email or password."));
-        setLoading(false);
-        return;
-      }
-
-      if (!loginData || loginData.length === 0) {
-        // Check if registration is still pending
-        const { data: registrationData } = await supabase
-          .from("registration_requests")
-          .select("status")
-          .eq("email", email)
-          .single();
-
-        if (registrationData && registrationData.status === "pending") {
-          setError("pending");
-          setLoading(false);
-          return;
-        }
-
-        await recordRateLimitAttempt("restaurant_login", email, false);
-        setError("Invalid email or password");
-        setLoading(false);
-        return;
-      }
-
-      const userData = loginData[0];
-
-      // Check if restaurant is active
-      if (!userData.restaurant_is_active) {
-        setError(
-          "Your restaurant account has been deactivated. Please contact support."
-        );
-        setLoading(false);
-        return;
-      }
-
-      await clearRateLimit("restaurant_login", email);
-
-      // Login successful - store user data in localStorage
       localStorage.setItem(
         "user",
         JSON.stringify({
-          id: userData.id,
-          email: userData.email,
-          role: userData.role,
-          restaurant_id: userData.restaurant_id,
-          restaurant: {
-            name: userData.restaurant_name,
-            slug: userData.restaurant_slug,
-            is_active: userData.restaurant_is_active,
-          },
-          temp_password: userData.temp_password,
+          ...payload.user,
+          session_token: payload.sessionToken,
         })
       );
 
-      // Redirect to restaurant dashboard
       navigate("/restaurant");
-    } catch (err: any) {
+    } catch (err: unknown) {
       logErrorForDev(err, "restaurant_login");
       setError(
         getSafeErrorMessage(err, "Network error. Please check your connection.")

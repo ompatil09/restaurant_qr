@@ -203,6 +203,56 @@ export const playNotificationSound = () => {
   }
 };
 
+export const escapeHtml = (value: unknown) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+
+export const printHtml = (title: string, body: string) => {
+  const printWindow = window.open("", "_blank", "width=420,height=640");
+  if (!printWindow) {
+    alert("Please allow popups to print.");
+    return false;
+  }
+
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>${escapeHtml(title)}</title>
+        <style>
+          * { box-sizing: border-box; }
+          body { width: 80mm; margin: 0 auto; padding: 12px; font-family: Arial, sans-serif; color: #111827; }
+          h1, h2, h3, p { margin: 0; }
+          .center { text-align: center; }
+          .muted { color: #6b7280; font-size: 12px; }
+          .line { border-top: 1px dashed #9ca3af; margin: 10px 0; }
+          .row { display: flex; justify-content: space-between; gap: 10px; margin: 6px 0; }
+          .strong { font-weight: 700; }
+          .item { margin: 8px 0; }
+          table { width: 100%; border-collapse: collapse; font-size: 13px; }
+          th, td { padding: 4px 0; text-align: left; vertical-align: top; }
+          td:last-child, th:last-child { text-align: right; }
+          @media print { body { width: 80mm; } button { display: none; } }
+        </style>
+      </head>
+      <body>
+        ${body}
+        <script>
+          window.onload = () => {
+            window.print();
+            setTimeout(() => window.close(), 400);
+          };
+        </script>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+  return true;
+};
+
 /**
  * Play sound (alias for playNotificationSound)
  */

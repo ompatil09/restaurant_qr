@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test:billing": "node --test netlify/lib/billing.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -17,7 +18,8 @@
     "qrcode.react": "^4.2.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-router-dom": "^7.9.6"
+    "react-router-dom": "^7.18.1",
+    "stripe": "^22.3.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

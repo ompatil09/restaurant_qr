@@ -1,94 +1,65 @@
-const json = (statusCode: number, body: Record<string, unknown>) => ({
-  statusCode,
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(body),
-});
+import {
+  functionError,
+  type FunctionEvent,
+  getBillingContext,
+  getStripe,
+  HttpError,
+  json,
+  requiredEnv,
+} from "../lib/billing.ts";
 
-const requiredEnv = (name: string) => {
-  const value = process.env[name];
-  if (!value) throw new Error("Billing is not configured yet.");
-  return value;
-};
-
-const supabaseRequest = async (
-  path: string,
-  options: RequestInit = {}
-) => {
-  const supabaseUrl = requiredEnv("SUPABASE_URL");
-  const serviceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
-  return fetch(`${supabaseUrl}/rest/v1/${path}`, {
-    ...options,
-    headers: {
-      apikey: serviceRoleKey,
-      Authorization: `Bearer ${serviceRoleKey}`,
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-  });
-};
-
-const createStripeCheckoutSession = async (params: URLSearchParams) => {
-  const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${requiredEnv("STRIPE_SECRET_KEY")}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: params.toString(),
-  });
-  const payload = await response.json();
-  if (!response.ok) throw new Error(payload?.error?.message || "Stripe error");
-  return payload;
-};
-
-export const handler = async (event: any) => {
+export const handler = async (event: FunctionEvent) => {
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Method not allowed" });
   }
 
   try {
-    const { restaurantId, userId, email } = JSON.parse(event.body || "{}");
-    if (!restaurantId || !userId || !email) {
-      return json(400, { error: "Invalid billing request." });
+    const { session, restaurant } = await getBillingContext(event);
+    if (
+      restaurant.stripe_subscription_id &&
+      !["cancelled", "inactive"].includes(
+        restaurant.subscription_status || ""
+      )
+    ) {
+      throw new HttpError(
+        409,
+        "A subscription already exists. Use Manage Billing to update it."
+      );
     }
 
     const appUrl = requiredEnv("APP_URL").replace(/\/$/, "");
-    const priceId = requiredEnv("STRIPE_PRICE_ID_RESTAURANT_MONTHLY");
-
-    const restaurantResponse = await supabaseRequest(
-      `restaurants?id=eq.${encodeURIComponent(restaurantId)}&select=id,name,email,stripe_customer_id`
-    );
-    const restaurants = await restaurantResponse.json();
-    const restaurant = restaurants?.[0];
-    if (!restaurant) return json(404, { error: "Restaurant not found." });
-
-    const params = new URLSearchParams();
-    params.set("mode", "subscription");
-    params.set("success_url", `${appUrl}/restaurant/settings?billing=success`);
-    params.set("cancel_url", `${appUrl}/restaurant/settings?billing=cancelled`);
-    params.set("line_items[0][price]", priceId);
-    params.set("line_items[0][quantity]", "1");
-    params.set("client_reference_id", restaurantId);
-    params.set("metadata[restaurant_id]", restaurantId);
-    params.set("metadata[user_id]", userId);
-    params.set("subscription_data[metadata][restaurant_id]", restaurantId);
-    params.set("subscription_data[metadata][user_id]", userId);
-    params.set("allow_promotion_codes", "true");
-
-    if (restaurant.stripe_customer_id) {
-      params.set("customer", restaurant.stripe_customer_id);
-    } else {
-      params.set("customer_email", email);
-    }
-
-    const session = await createStripeCheckoutSession(params);
-    return json(200, { url: session.url });
-  } catch (error) {
-    return json(500, {
-      error:
-        error instanceof Error
-          ? error.message
-          : "Billing is not configured yet.",
+    const checkout = await getStripe().checkout.sessions.create({
+      mode: "subscription",
+      success_url: `${appUrl}/restaurant/settings?billing=success`,
+      cancel_url: `${appUrl}/restaurant/settings?billing=cancelled`,
+      line_items: [
+        {
+          price: requiredEnv("STRIPE_PRICE_ID_RESTAURANT_MONTHLY"),
+          quantity: 1,
+        },
+      ],
+      client_reference_id: restaurant.id,
+      metadata: {
+        restaurant_id: restaurant.id,
+        user_id: session.userId,
+      },
+      subscription_data: {
+        metadata: {
+          restaurant_id: restaurant.id,
+          user_id: session.userId,
+        },
+      },
+      allow_promotion_codes: true,
+      ...(restaurant.stripe_customer_id
+        ? { customer: restaurant.stripe_customer_id }
+        : { customer_email: restaurant.email || session.email }),
     });
+
+    if (!checkout.url) {
+      throw new Error("Stripe did not return a Checkout URL");
+    }
+    return json(200, { url: checkout.url });
+  } catch (error) {
+    return functionError(error, "Unable to start billing right now.");
   }
 };

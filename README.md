@@ -263,6 +263,7 @@ Manual Supabase migration:
 
 ```text
 database/subscription_auth_fixes_part6.sql
+database/stripe_billing_hardening_part7.sql
 ```
 
 Netlify environment variables required for billing:
@@ -271,13 +272,15 @@ Netlify environment variables required for billing:
 STRIPE_SECRET_KEY=sk_live_or_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 STRIPE_PRICE_ID_RESTAURANT_MONTHLY=price_...
-VITE_STRIPE_PUBLISHABLE_KEY=pk_live_or_test_...
 SUPABASE_URL=https://your-project-id.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your-server-only-service-role-key
+APP_SESSION_SECRET=at-least-32-random-characters
 APP_URL=https://your-existing-netlify-site.netlify.app
 ```
 
-Only `VITE_STRIPE_PUBLISHABLE_KEY` is allowed in frontend code. `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `SUPABASE_SERVICE_ROLE_KEY` must exist only in Netlify Function environment variables.
+Hosted Stripe Checkout does not need a frontend publishable key. `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `SUPABASE_SERVICE_ROLE_KEY`, and `APP_SESSION_SECRET` must exist only in Netlify Function environment variables. Rotate any secret that has been pasted into source code, chat, logs, or tickets before using it.
+
+Test keys and test Price objects only create simulated payments. To accept real money, activate the Stripe account and payouts, create the Product and Price in live mode, and replace the Netlify values with the matching live secret, live Price ID, and live webhook signing secret.
 
 Stripe dashboard setup:
 
@@ -290,7 +293,7 @@ Stripe dashboard setup:
    - `checkout.session.completed`
    - `customer.subscription.created`
    - `customer.subscription.updated`
-   - `invoice.payment_succeeded`
+   - `invoice.paid`
    - `invoice.payment_failed`
    - `customer.subscription.deleted`
 6. Copy the webhook signing secret into `STRIPE_WEBHOOK_SECRET`.

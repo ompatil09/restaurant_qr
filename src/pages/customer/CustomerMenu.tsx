@@ -31,13 +31,7 @@ import {
   validateTextLength,
 } from "../../utils/security";
 import { getRestaurantAccessStatus } from "../../services/subscriptionService";
-
-interface CartItem extends MenuItem {
-  quantity: number;
-  selectedSize?: { name: string; price: number };
-  selectedAddons: { name: string; price: number }[];
-  itemTotal: number;
-}
+import { mergeCartItem, type CartItem } from "../../utils/cart";
 
 interface TableContext {
   id: string;
@@ -215,48 +209,20 @@ const CustomerMenu: React.FC = () => {
   const addToCart = (
     item: MenuItem,
     selectedSize?: { name: string; price: number },
-    selectedAddons: { name: string; price: number }[] = []
+    selectedAddons: { name: string; price: number }[] = [],
+    quantity = 1,
+    specialInstructions = ""
   ) => {
-    const basePrice = selectedSize ? selectedSize.price : item.base_price;
-    const addonsTotal = selectedAddons.reduce(
-      (sum, addon) => sum + addon.price,
-      0
+    setCart((currentCart) =>
+      mergeCartItem(
+        currentCart,
+        item,
+        quantity,
+        selectedSize,
+        selectedAddons,
+        specialInstructions
+      )
     );
-    const itemTotal = basePrice + addonsTotal;
-    const addonKey = selectedAddons.map((addon) => addon.name).sort().join("|");
-
-    setCart((currentCart) => {
-      const existingIndex = currentCart.findIndex((cartItem) => {
-        const cartAddonKey = cartItem.selectedAddons
-          .map((addon) => addon.name)
-          .sort()
-          .join("|");
-        return (
-          cartItem.id === item.id &&
-          cartItem.selectedSize?.name === selectedSize?.name &&
-          cartAddonKey === addonKey
-        );
-      });
-
-      if (existingIndex >= 0) {
-        return currentCart.map((cartItem, index) =>
-          index === existingIndex
-            ? { ...cartItem, quantity: cartItem.quantity + 1 }
-            : cartItem
-        );
-      }
-
-      return [
-        ...currentCart,
-        {
-          ...item,
-          quantity: 1,
-          selectedSize,
-          selectedAddons,
-          itemTotal,
-        },
-      ];
-    });
 
     setSelectedItem(null);
   };
@@ -422,9 +388,15 @@ const CustomerMenu: React.FC = () => {
               return (
                 <article
                   key={item.id}
-                  className="bg-[#fffaf4] rounded-2xl border border-[#eadfd2] overflow-hidden shadow-sm"
+                  className="relative bg-[#fffaf4] rounded-2xl border border-[#eadfd2] overflow-hidden shadow-sm transition-shadow hover:shadow-md"
                 >
-                  <div className="flex gap-3 p-3">
+                  <button
+                    type="button"
+                    aria-label={`View details for ${item.name}`}
+                    onClick={() => setSelectedItem(item)}
+                    className="absolute inset-0 z-0 rounded-2xl focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#8b5e34]/30"
+                  />
+                  <div className="pointer-events-none relative z-10 flex gap-3 p-3">
                     <LazyImage
                       src={item.image_url}
                       alt={item.name}
@@ -486,17 +458,23 @@ const CustomerMenu: React.FC = () => {
                         {quantity === 0 ? (
                           <button
                             type="button"
-                            onClick={() =>
-                              hasOptions ? setSelectedItem(item) : addToCart(item)
-                            }
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (hasOptions) {
+                                setSelectedItem(item);
+                              } else {
+                                addToCart(item);
+                              }
+                            }}
                             style={{ borderColor: themeColor, color: themeColor }}
-                            className="px-4 py-2 border-2 font-bold text-xs rounded-lg bg-white shadow-sm"
+                            className="pointer-events-auto px-4 py-2 border-2 font-bold text-xs rounded-lg bg-white shadow-sm"
                           >
                             ADD
                           </button>
                         ) : (
                           <div
-                            className="flex items-center text-white rounded-md"
+                            onClick={(event) => event.stopPropagation()}
+                            className="pointer-events-auto flex items-center text-white rounded-md"
                             style={{ backgroundColor: themeColor }}
                           >
                             <button
@@ -548,8 +526,10 @@ const CustomerMenu: React.FC = () => {
       />
 
       <ItemCustomizationModal
+        key={selectedItem?.id || "closed"}
         isOpen={Boolean(selectedItem)}
         item={selectedItem}
+        themeColor={themeColor}
         onClose={() => setSelectedItem(null)}
         onAdd={addToCart}
       />
@@ -643,6 +623,11 @@ const CartModal: React.FC<CartModalProps> = ({
                       {item.selectedAddons.map((addon) => addon.name).join(", ")}
                     </p>
                   )}
+                  {item.specialInstructions && (
+                    <p className="text-sm text-text-secondary">
+                      Request: {item.specialInstructions}
+                    </p>
+                  )}
                   <p className="text-accent font-semibold mt-1">
                     {formatCurrency(item.itemTotal)}
                   </p>
@@ -700,31 +685,32 @@ const CartModal: React.FC<CartModalProps> = ({
 interface ItemCustomizationModalProps {
   isOpen: boolean;
   item: MenuItem | null;
+  themeColor: string;
   onClose: () => void;
   onAdd: (
     item: MenuItem,
     selectedSize?: { name: string; price: number },
-    selectedAddons?: { name: string; price: number }[]
+    selectedAddons?: { name: string; price: number }[],
+    quantity?: number,
+    specialInstructions?: string
   ) => void;
 }
 
 const ItemCustomizationModal: React.FC<ItemCustomizationModalProps> = ({
   isOpen,
   item,
+  themeColor,
   onClose,
   onAdd,
 }) => {
   const [selectedSize, setSelectedSize] = useState<
     { name: string; price: number } | undefined
-  >();
+  >(item?.sizes?.[0]);
   const [selectedAddons, setSelectedAddons] = useState<
     { name: string; price: number }[]
   >([]);
-
-  useEffect(() => {
-    setSelectedSize(item?.sizes?.[0]);
-    setSelectedAddons([]);
-  }, [item]);
+  const [quantity, setQuantity] = useState(1);
+  const [specialInstructions, setSpecialInstructions] = useState("");
 
   if (!item) return null;
 
@@ -741,37 +727,58 @@ const ItemCustomizationModal: React.FC<ItemCustomizationModalProps> = ({
     selectedAddons.reduce((sum, addon) => sum + addon.price, 0);
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={item.name} size="md">
-      <div className="space-y-6">
+    <Modal isOpen={isOpen} onClose={onClose} title="Dish details" size="md">
+      <div className="space-y-3 sm:space-y-5">
         <LazyImage
           src={item.image_url}
           alt={item.name}
-          className="w-full h-48 rounded-lg"
+          className="w-full h-40 rounded-lg sm:h-56"
         />
 
-        {item.description && (
-          <p className="text-text-secondary">{item.description}</p>
-        )}
+        <div>
+          <div className="flex items-start justify-between gap-4">
+            <h3 className="text-xl font-bold text-text">{item.name}</h3>
+            <span className="text-lg font-bold text-emerald-800">
+              {formatCurrency(total)}
+            </span>
+          </div>
+          {item.description && (
+            <p className="mt-1.5 text-sm leading-relaxed text-text-secondary sm:mt-2">
+              {item.description}
+            </p>
+          )}
+        </div>
+
+        <div
+          className={`rounded-lg border px-3 py-2 text-sm font-semibold sm:py-3 ${getFoodTypeClassName(
+            item.food_type
+          )}`}
+        >
+          {getFoodTypeLabel(item.food_type)}
+          {item.tag_label ? ` · ${item.tag_label}` : ""}
+        </div>
 
         {item.sizes && item.sizes.length > 0 && (
           <div>
-            <h4 className="font-semibold text-text mb-3">Select Size</h4>
-            <div className="space-y-2">
+            <h4 className="mb-2 font-semibold text-text sm:mb-3">Choose size</h4>
+            <div className="flex flex-wrap gap-2">
               {item.sizes.map((size) => (
                 <button
                   key={size.name}
                   type="button"
                   onClick={() => setSelectedSize(size)}
-                  className={`w-full flex items-center justify-between p-3 rounded-lg border-2 ${
+                  style={
                     selectedSize?.name === size.name
-                      ? "border-accent bg-accent/5"
-                      : "border-border"
+                      ? { backgroundColor: themeColor, borderColor: themeColor }
+                      : undefined
+                  }
+                  className={`px-4 py-2 rounded-full border text-sm font-semibold ${
+                    selectedSize?.name === size.name
+                      ? "text-white"
+                      : "border-border bg-white text-text"
                   }`}
                 >
-                  <span className="font-medium text-text">{size.name}</span>
-                  <span className="text-accent font-semibold">
-                    {formatCurrency(size.price)}
-                  </span>
+                  {size.name} · {formatCurrency(size.price)}
                 </button>
               ))}
             </div>
@@ -780,14 +787,14 @@ const ItemCustomizationModal: React.FC<ItemCustomizationModalProps> = ({
 
         {item.addons && item.addons.length > 0 && (
           <div>
-            <h4 className="font-semibold text-text mb-3">Add-ons</h4>
+            <h4 className="mb-2 font-semibold text-text sm:mb-3">Add extras</h4>
             <div className="space-y-2">
               {item.addons.map((addon) => (
                 <button
                   key={addon.name}
                   type="button"
                   onClick={() => toggleAddon(addon)}
-                  className={`w-full flex items-center justify-between p-3 rounded-lg border-2 ${
+                  className={`w-full flex items-center justify-between rounded-lg border-2 p-2.5 sm:p-3 ${
                     selectedAddons.some(
                       (selectedAddon) => selectedAddon.name === addon.name
                     )
@@ -805,18 +812,60 @@ const ItemCustomizationModal: React.FC<ItemCustomizationModalProps> = ({
           </div>
         )}
 
-        <div className="border-t border-border pt-4">
-          <div className="flex justify-between text-xl font-bold text-text mb-4">
-            <span>Total</span>
-            <span>{formatCurrency(total)}</span>
-          </div>
-          <Button
-            onClick={() => onAdd(item, selectedSize, selectedAddons)}
-            fullWidth
-            size="lg"
+        <div>
+          <label
+            htmlFor="dish-special-request"
+            className="mb-1.5 block font-semibold text-text sm:mb-2"
           >
-            Add to Cart
-          </Button>
+            Special request
+          </label>
+          <textarea
+            id="dish-special-request"
+            value={specialInstructions}
+            onChange={(event) => setSpecialInstructions(event.target.value)}
+            maxLength={200}
+            rows={2}
+            placeholder="Example: no onions"
+            className="input-field resize-none"
+          />
+        </div>
+
+        <div className="flex gap-3 border-t border-border pt-3 sm:pt-4">
+          <div className="flex h-11 items-center rounded-lg border border-border bg-white sm:h-12">
+            <button
+              type="button"
+              onClick={() => setQuantity((current) => Math.max(1, current - 1))}
+              className="flex h-11 w-10 items-center justify-center sm:h-12 sm:w-11"
+              aria-label="Decrease quantity"
+            >
+              <Minus className="w-4 h-4" />
+            </button>
+            <span className="w-8 text-center font-bold">{quantity}</span>
+            <button
+              type="button"
+              onClick={() => setQuantity((current) => Math.min(20, current + 1))}
+              className="flex h-11 w-10 items-center justify-center sm:h-12 sm:w-11"
+              aria-label="Increase quantity"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              onAdd(
+                item,
+                selectedSize,
+                selectedAddons,
+                quantity,
+                specialInstructions
+              )
+            }
+            style={{ backgroundColor: themeColor }}
+            className="min-w-0 flex-1 rounded-lg px-4 text-sm font-bold text-white"
+          >
+            Add to cart · {formatCurrency(total * quantity)}
+          </button>
         </div>
       </div>
     </Modal>
@@ -893,6 +942,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
         quantity: item.quantity,
         selected_size_name: item.selectedSize?.name,
         selected_addon_names: item.selectedAddons.map((addon) => addon.name),
+        special_instructions: item.specialInstructions,
       })),
     });
     setLoading(false);

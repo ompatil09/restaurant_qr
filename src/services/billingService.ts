@@ -12,18 +12,13 @@ const parseFunctionResponse = async (response: Response) => {
 export const startRestaurantCheckout = async () => {
   try {
     const user = JSON.parse(localStorage.getItem("user") || "{}");
-    if (!user?.restaurant_id || !user?.id || !user?.email) {
-      throw new Error("Restaurant session not found.");
+    if (!user?.session_token) {
+      throw new Error("Please sign out and sign in again to manage billing.");
     }
 
     const response = await fetch("/.netlify/functions/create-checkout-session", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        restaurantId: user.restaurant_id,
-        userId: user.id,
-        email: user.email,
-      }),
+      headers: { Authorization: `Bearer ${user.session_token}` },
     });
     const payload = await parseFunctionResponse(response);
 
@@ -45,14 +40,13 @@ export const startRestaurantCheckout = async () => {
 export const openBillingPortal = async () => {
   try {
     const user = JSON.parse(localStorage.getItem("user") || "{}");
-    if (!user?.restaurant_id) {
-      throw new Error("Restaurant session not found.");
+    if (!user?.session_token) {
+      throw new Error("Please sign out and sign in again to manage billing.");
     }
 
     const response = await fetch("/.netlify/functions/create-portal-session", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ restaurantId: user.restaurant_id }),
+      headers: { Authorization: `Bearer ${user.session_token}` },
     });
     const payload = await parseFunctionResponse(response);
 
