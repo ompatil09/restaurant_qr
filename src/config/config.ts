@@ -21,10 +21,10 @@ export const APP_CONFIG = {
       price: 0,
       duration: "Free Trial / Demo",
       features: [
-        "QR table ordering demo",
-        "Digital menu",
-        "Limited orders/items for testing",
-        "Basic support",
+        "Try QR ordering",
+        "Test menu setup",
+        "Basic demo access",
+        "Limited usage for testing",
       ],
     },
     restaurant_plan: {
@@ -38,6 +38,7 @@ export const APP_CONFIG = {
         "Menu management",
         "KOT print",
         "Bill summary",
+        "Image upload",
         "Daily sales summary",
         "Table-wise order history",
         "Restaurant branding",

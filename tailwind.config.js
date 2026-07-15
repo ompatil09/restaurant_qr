@@ -19,12 +19,12 @@ export default {
         sans: ["Inter", "system-ui", "sans-serif"],
       },
       fontSize: {
-        xs: ["12px", { lineHeight: "1.5", letterSpacing: "-0.01em" }],
-        sm: ["14px", { lineHeight: "1.5", letterSpacing: "-0.01em" }],
-        base: ["15px", { lineHeight: "1.6", letterSpacing: "-0.01em" }],
-        lg: ["18px", { lineHeight: "1.5", letterSpacing: "-0.02em" }],
-        xl: ["24px", { lineHeight: "1.3", letterSpacing: "-0.02em" }],
-        "2xl": ["32px", { lineHeight: "1.2", letterSpacing: "-0.03em" }],
+        xs: ["12px", { lineHeight: "1.5", letterSpacing: "0" }],
+        sm: ["14px", { lineHeight: "1.5", letterSpacing: "0" }],
+        base: ["15px", { lineHeight: "1.6", letterSpacing: "0" }],
+        lg: ["18px", { lineHeight: "1.5", letterSpacing: "0" }],
+        xl: ["24px", { lineHeight: "1.3", letterSpacing: "0" }],
+        "2xl": ["32px", { lineHeight: "1.2", letterSpacing: "0" }],
       },
       borderRadius: {
         DEFAULT: "12px",

@@ -358,14 +358,59 @@ The included SPA redirect keeps client-side routes working on refresh:
 - `/admin/login`
 - `/restaurant`
 
-Existing Netlify site redeploy steps:
+## Connect Netlify to GitHub for automatic deploys
 
-1. Push this code to GitHub.
-2. Open the existing Netlify site.
-3. Confirm build command is `npm run build`.
-4. Confirm publish directory is `dist`.
-5. Confirm `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are set.
-6. Netlify will redeploy automatically from the GitHub push.
+The repository and `netlify.toml` are ready for continuous deployment, but the
+existing Netlify site must be linked to GitHub by a Netlify account owner:
+
+1. Push this project to GitHub.
+2. Open the Netlify dashboard.
+3. Open the existing deployed site. Do not create a second site.
+4. Go to `Site configuration -> Build & deploy -> Continuous deployment`.
+5. Click `Link repository` or `Connect to Git provider`.
+6. Choose GitHub and approve the requested Netlify GitHub access.
+7. Select this repository and the production branch, normally `main`.
+8. Confirm the build command is `npm run build`.
+9. Confirm the publish directory is `dist`.
+10. Add the required environment variables in Netlify without committing them:
+
+```env
+VITE_SUPABASE_URL
+VITE_SUPABASE_ANON_KEY
+VITE_STRIPE_PUBLISHABLE_KEY
+STRIPE_SECRET_KEY
+STRIPE_WEBHOOK_SECRET
+STRIPE_PRICE_ID_RESTAURANT_MONTHLY
+SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
+APP_SESSION_SECRET
+APP_URL
+```
+
+`APP_SESSION_SECRET` must be a random value of at least 32 characters.
+`VITE_*` values are included in the browser bundle; never put a Stripe secret
+or the Supabase service-role key in a `VITE_*` variable.
+
+11. Trigger the first deploy and confirm the production URL still points to the
+    existing Netlify site.
+12. After the repository is linked, every push to the selected production
+    branch automatically starts a Netlify build and production deploy.
+
+Client-side routes are covered by the SPA redirect in `netlify.toml`, including
+`/login`, `/register`, `/admin/login`, `/restaurant/...`, and
+`/order/:restaurantSlug/:tableToken`.
+
+## Future update workflow
+
+```bash
+git status
+git add .
+git commit -m "Describe changes"
+git push
+```
+
+After the repository link is complete, Netlify automatically builds and updates
+the live website from the selected branch.
 
 Local `.env` files are ignored by `.gitignore` and must not be committed.
 
