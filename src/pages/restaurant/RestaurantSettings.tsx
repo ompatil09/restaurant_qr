@@ -16,13 +16,16 @@ import {
   getSafeErrorMessage,
   validateAdminPin,
   validateGstRate,
+  validateHttpsUrl,
   validatePassword,
   validateTextLength,
 } from "../../utils/security";
 
 const RestaurantSettings: React.FC = () => {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<
+    (Record<string, unknown> & { restaurant_id?: string; temp_password?: boolean }) | null
+  >(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [passwordSaving, setPasswordSaving] = useState(false);
@@ -93,18 +96,21 @@ const RestaurantSettings: React.FC = () => {
   ) => {
     setError("");
     if (!file) {
-      target === "logo" ? setLogoFile(null) : setUpiFile(null);
+      if (target === "logo") setLogoFile(null);
+      else setUpiFile(null);
       return;
     }
 
     const validationMessage = validateRestaurantImage(file);
     if (validationMessage) {
-      target === "logo" ? setLogoFile(null) : setUpiFile(null);
+      if (target === "logo") setLogoFile(null);
+      else setUpiFile(null);
       setError(validationMessage);
       return;
     }
 
-    target === "logo" ? setLogoFile(file) : setUpiFile(file);
+    if (target === "logo") setLogoFile(file);
+    else setUpiFile(file);
   };
 
   const handleSave = async (event: React.FormEvent) => {
@@ -114,6 +120,25 @@ const RestaurantSettings: React.FC = () => {
     setSaving(true);
     setError("");
     setSuccess("");
+
+    const validationError =
+      validateHttpsUrl(formData.logo_url, "Logo URL") ||
+      validateHttpsUrl(formData.upi_qr_url, "UPI QR image URL") ||
+      validateTextLength(
+        formData.welcome_message,
+        "Welcome message",
+        0,
+        250,
+        false
+      ) ||
+      validateGstRate(formData.cgst_rate || "0") ||
+      validateGstRate(formData.sgst_rate || "0") ||
+      validateAdminPin(formData.admin_pin.trim());
+    if (validationError) {
+      setSaving(false);
+      setError(validationError);
+      return;
+    }
 
     let logoUrl = formData.logo_url || undefined;
     let upiQrUrl = formData.upi_qr_url || undefined;
@@ -149,34 +174,7 @@ const RestaurantSettings: React.FC = () => {
       upiQrUrl = url;
     }
 
-    const welcomeError = validateTextLength(
-      formData.welcome_message,
-      "Welcome message",
-      0,
-      250,
-      false
-    );
-    if (welcomeError) {
-      setSaving(false);
-      setError(welcomeError);
-      return;
-    }
-
-    const cgstError = validateGstRate(formData.cgst_rate || "0");
-    const sgstError = validateGstRate(formData.sgst_rate || "0");
-    if (cgstError || sgstError) {
-      setSaving(false);
-      setError(cgstError || sgstError);
-      return;
-    }
-
     if (formData.admin_pin.trim()) {
-      const pinError = validateAdminPin(formData.admin_pin.trim());
-      if (pinError) {
-        setSaving(false);
-        setError(pinError);
-        return;
-      }
       adminPinHash = await hashPassword(formData.admin_pin.trim());
     }
 
@@ -384,6 +382,8 @@ const RestaurantSettings: React.FC = () => {
                   setFormData({ ...formData, logo_url: event.target.value })
                 }
                 placeholder="https://..."
+                type="url"
+                maxLength={2048}
               />
               <div>
                 <label className="label mb-2">Upload Logo</label>
@@ -418,6 +418,8 @@ const RestaurantSettings: React.FC = () => {
                 setFormData({ ...formData, upi_qr_url: event.target.value })
               }
               placeholder="https://..."
+              type="url"
+              maxLength={2048}
             />
           </div>
 
@@ -447,6 +449,7 @@ const RestaurantSettings: React.FC = () => {
             }
             placeholder="Welcome! Order fresh from your table."
             rows={3}
+            maxLength={250}
           />
 
           <div className="border-t border-border pt-5">
@@ -470,6 +473,8 @@ const RestaurantSettings: React.FC = () => {
                 label="CGST %"
                 type="number"
                 step="0.01"
+                min="0"
+                max="28"
                 value={formData.cgst_rate}
                 onChange={(event) =>
                   setFormData({ ...formData, cgst_rate: event.target.value })
@@ -479,6 +484,8 @@ const RestaurantSettings: React.FC = () => {
                 label="SGST %"
                 type="number"
                 step="0.01"
+                min="0"
+                max="28"
                 value={formData.sgst_rate}
                 onChange={(event) =>
                   setFormData({ ...formData, sgst_rate: event.target.value })
@@ -502,6 +509,9 @@ const RestaurantSettings: React.FC = () => {
                 setFormData({ ...formData, admin_pin: event.target.value })
               }
               placeholder="4 to 6 digits"
+              minLength={4}
+              maxLength={6}
+              pattern="[0-9]{4,6}"
               helperText="Used only before deleting menu items or marking items unavailable."
             />
           </div>
@@ -543,6 +553,7 @@ const RestaurantSettings: React.FC = () => {
                 })
               }
               autoComplete="current-password"
+              maxLength={128}
               required
             />
           )}
@@ -560,6 +571,7 @@ const RestaurantSettings: React.FC = () => {
               }
               helperText="Minimum 8 characters."
               autoComplete="new-password"
+              maxLength={128}
               required
             />
             <Input
@@ -573,6 +585,7 @@ const RestaurantSettings: React.FC = () => {
                 })
               }
               autoComplete="new-password"
+              maxLength={128}
               required
             />
           </div>

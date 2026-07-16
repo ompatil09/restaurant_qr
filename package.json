@@ -6,9 +6,11 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && npm run check:client-secrets",
+    "check:client-secrets": "node scripts/assert-no-client-secrets.mjs",
     "lint": "eslint .",
     "test:billing": "node --test netlify/lib/billing.test.ts",
+    "test:security": "node --test netlify/lib/*.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -8,12 +8,8 @@ import {
   getSafeErrorMessage,
   logErrorForDev,
   normalizeEmail,
+  validatePassword,
 } from "../../utils/security";
-import {
-  checkRateLimit,
-  clearRateLimit,
-  recordRateLimitAttempt,
-} from "../../services/securityService";
 
 const AdminLogin: React.FC = () => {
   const navigate = useNavigate();
@@ -37,18 +33,16 @@ const AdminLogin: React.FC = () => {
       setError("Please enter a valid email address");
       return;
     }
+    const passwordError = validatePassword(formData.password);
+    if (passwordError) {
+      setError(passwordError);
+      return;
+    }
 
     setLoading(true);
 
     try {
       const email = normalizeEmail(formData.email);
-      const limit = await checkRateLimit("admin_login", email);
-      if (!limit.allowed) {
-        setError("Too many attempts. Please wait and try again.");
-        setLoading(false);
-        return;
-      }
-
       // Hash password and use RPC function for admin login
       const passwordHash = await hashPassword(formData.password);
       const { data: adminData, error: adminError } = await supabase.rpc(
@@ -61,14 +55,12 @@ const AdminLogin: React.FC = () => {
 
       if (adminError) {
         logErrorForDev(adminError, "admin_login");
-        await recordRateLimitAttempt("admin_login", email, false);
         setError(getSafeErrorMessage(adminError, "Invalid email or password."));
         setLoading(false);
         return;
       }
 
       if (!adminData || adminData.length === 0) {
-        await recordRateLimitAttempt("admin_login", email, false);
         setError("Invalid email or password");
         setLoading(false);
         return;
@@ -77,7 +69,6 @@ const AdminLogin: React.FC = () => {
       const admin = adminData[0];
 
       // Login successful - store admin data
-      await clearRateLimit("admin_login", email);
       localStorage.setItem(
         "admin",
         JSON.stringify({
@@ -89,7 +80,7 @@ const AdminLogin: React.FC = () => {
 
       // Redirect to admin dashboard
       navigate("/admin");
-    } catch (err: any) {
+    } catch (err: unknown) {
       logErrorForDev(err, "admin_login");
       setError(getSafeErrorMessage(err, "An error occurred. Please try again."));
     } finally {
@@ -141,6 +132,7 @@ const AdminLogin: React.FC = () => {
               icon={<Mail className="w-5 h-5" />}
               required
               autoComplete="email"
+              maxLength={254}
             />
 
             <Input
@@ -153,6 +145,7 @@ const AdminLogin: React.FC = () => {
               icon={<Lock className="w-5 h-5" />}
               required
               autoComplete="current-password"
+              maxLength={128}
             />
 
             <Button type="submit" loading={loading} fullWidth size="lg">

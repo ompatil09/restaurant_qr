@@ -1,4 +1,5 @@
 import {
+  enforceRateLimit,
   functionError,
   type FunctionEvent,
   getBillingContext,
@@ -15,6 +16,7 @@ export const handler = async (event: FunctionEvent) => {
 
   try {
     const { session, restaurant } = await getBillingContext(event);
+    await enforceRateLimit(event, "billing_write", session.userId);
     if (
       restaurant.stripe_subscription_id &&
       !["cancelled", "inactive"].includes(

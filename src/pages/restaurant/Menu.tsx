@@ -30,6 +30,7 @@ import {
   getSafeErrorMessage,
   validatePrice,
   validateTextLength,
+  validateHttpsUrl,
 } from "../../utils/security";
 
 const Menu: React.FC = () => {
@@ -164,6 +165,7 @@ const Menu: React.FC = () => {
             placeholder="Search menu items..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
+            maxLength={100}
             icon={<Search className="w-5 h-5" />}
           />
         </div>
@@ -337,12 +339,14 @@ const Menu: React.FC = () => {
 
       {/* Add/Edit Modals */}
       <MenuItemModal
+        key={`add-${showAddModal}`}
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
         mode="add"
       />
 
       <MenuItemModal
+        key={`edit-${selectedItem?.id || "closed"}`}
         isOpen={showEditModal}
         item={selectedItem}
         onClose={() => {
@@ -400,20 +404,37 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [formData, setFormData] = useState({
-    name: "",
-    description: "",
-    category: "",
-    base_price: "",
-    image_url: "",
-    food_type: "veg",
-    is_best_seller: false,
-    is_recommended: false,
-    tag_label: "",
-    is_available: true,
-    sizes: [] as { name: string; price: number }[],
-    addons: [] as { name: string; price: number }[],
-  });
+  const [formData, setFormData] = useState(() =>
+    mode === "edit" && item
+      ? {
+          name: item.name,
+          description: item.description || "",
+          category: item.category || "",
+          base_price: item.base_price.toString(),
+          image_url: item.image_url || "",
+          food_type: item.food_type || "veg",
+          is_best_seller: item.is_best_seller || false,
+          is_recommended: item.is_recommended || false,
+          tag_label: item.tag_label || "",
+          is_available: item.is_available,
+          sizes: item.sizes || [],
+          addons: item.addons || [],
+        }
+      : {
+          name: "",
+          description: "",
+          category: "",
+          base_price: "",
+          image_url: "",
+          food_type: "veg",
+          is_best_seller: false,
+          is_recommended: false,
+          tag_label: "",
+          is_available: true,
+          sizes: [] as { name: string; price: number }[],
+          addons: [] as { name: string; price: number }[],
+        }
+  );
 
   const [newSize, setNewSize] = useState({ name: "", price: "" });
   const [newAddon, setNewAddon] = useState({ name: "", price: "" });
@@ -436,41 +457,6 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
     setImageFile(file);
   };
 
-  useEffect(() => {
-    if (mode === "edit" && item) {
-      setFormData({
-        name: item.name,
-        description: item.description || "",
-        category: item.category || "",
-        base_price: item.base_price.toString(),
-        image_url: item.image_url || "",
-        food_type: item.food_type || "veg",
-        is_best_seller: item.is_best_seller || false,
-        is_recommended: item.is_recommended || false,
-        tag_label: item.tag_label || "",
-        is_available: item.is_available,
-        sizes: item.sizes || [],
-        addons: item.addons || [],
-      });
-    } else {
-      setFormData({
-        name: "",
-        description: "",
-        category: "",
-        base_price: "",
-        image_url: "",
-        food_type: "veg",
-        is_best_seller: false,
-        is_recommended: false,
-        tag_label: "",
-        is_available: true,
-        sizes: [],
-        addons: [],
-      });
-    }
-    setImageFile(null);
-  }, [mode, item, isOpen]);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -484,10 +470,11 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
       false
     );
     const priceError = validatePrice(formData.base_price, "Base price");
+    const imageUrlError = validateHttpsUrl(formData.image_url, "Image URL");
     const allowedFoodTypes = ["veg", "non_veg", "egg", "jain"];
 
-    if (nameError || descriptionError || priceError) {
-      setError(nameError || descriptionError || priceError);
+    if (nameError || descriptionError || priceError || imageUrlError) {
+      setError(nameError || descriptionError || priceError || imageUrlError);
       return;
     }
 
@@ -566,6 +553,13 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
   };
 
   const addSize = () => {
+    const errorMessage =
+      validateTextLength(newSize.name, "Size name", 1, 50) ||
+      validatePrice(newSize.price, "Size price");
+    if (errorMessage || formData.sizes.length >= 20) {
+      setError(errorMessage || "A menu item can have at most 20 sizes.");
+      return;
+    }
     if (newSize.name && newSize.price) {
       setFormData({
         ...formData,
@@ -586,6 +580,13 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
   };
 
   const addAddon = () => {
+    const errorMessage =
+      validateTextLength(newAddon.name, "Add-on name", 1, 50) ||
+      validatePrice(newAddon.price, "Add-on price");
+    if (errorMessage || formData.addons.length >= 20) {
+      setError(errorMessage || "A menu item can have at most 20 add-ons.");
+      return;
+    }
     if (newAddon.name && newAddon.price) {
       setFormData({
         ...formData,
@@ -620,6 +621,7 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
           value={formData.name}
           onChange={(e) => setFormData({ ...formData, name: e.target.value })}
           placeholder="e.g., Margherita Pizza"
+          maxLength={100}
           required
         />
 
@@ -631,6 +633,7 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
           }
           placeholder="Describe your item..."
           rows={2}
+          maxLength={500}
         />
 
         <div className="grid sm:grid-cols-2 gap-4">
@@ -641,12 +644,15 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
               setFormData({ ...formData, category: e.target.value })
             }
             placeholder="e.g., Pizza, Burgers"
+            maxLength={80}
           />
 
           <Input
             label="Base Price"
             type="number"
             step="0.01"
+            min="0.01"
+            max="100000"
             value={formData.base_price}
             onChange={(e) =>
               setFormData({ ...formData, base_price: e.target.value })
@@ -673,6 +679,7 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
               setFormData({ ...formData, tag_label: e.target.value })
             }
             placeholder="e.g., Chef Special"
+            maxLength={40}
           />
         </div>
 
@@ -683,6 +690,8 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
             setFormData({ ...formData, image_url: e.target.value })
           }
           placeholder="https://example.com/image.jpg"
+          type="url"
+          maxLength={2048}
         />
 
         <div>
@@ -724,12 +733,15 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
             <Input
               placeholder="Size name"
               value={newSize.name}
+              maxLength={50}
               onChange={(e) => setNewSize({ ...newSize, name: e.target.value })}
             />
             <Input
               placeholder="Price"
               type="number"
               step="0.01"
+              min="0.01"
+              max="100000"
               value={newSize.price}
               onChange={(e) =>
                 setNewSize({ ...newSize, price: e.target.value })
@@ -767,6 +779,7 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
             <Input
               placeholder="Add-on name"
               value={newAddon.name}
+              maxLength={50}
               onChange={(e) =>
                 setNewAddon({ ...newAddon, name: e.target.value })
               }
@@ -775,6 +788,8 @@ const MenuItemModal: React.FC<MenuItemModalProps> = ({
               placeholder="Price"
               type="number"
               step="0.01"
+              min="0.01"
+              max="100000"
               value={newAddon.price}
               onChange={(e) =>
                 setNewAddon({ ...newAddon, price: e.target.value })

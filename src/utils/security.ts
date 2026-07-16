@@ -1,39 +1,4 @@
-import { hashPassword, isValidEmail, isValidPhone } from "./helpers";
-
-export const RATE_LIMITS = {
-  admin_login: {
-    maxAttempts: 5,
-    windowMinutes: 15,
-    backoffBaseSeconds: 30,
-    maxBackoffMinutes: 30,
-  },
-  restaurant_login: {
-    maxAttempts: 5,
-    windowMinutes: 15,
-    backoffBaseSeconds: 30,
-    maxBackoffMinutes: 30,
-  },
-  registration: {
-    maxAttempts: 3,
-    windowMinutes: 60,
-  },
-  order_create: {
-    maxAttempts: 20,
-    windowMinutes: 10,
-  },
-  password_change: {
-    maxAttempts: 5,
-    windowMinutes: 30,
-    backoffBaseSeconds: 30,
-    maxBackoffMinutes: 30,
-  },
-  image_upload: {
-    maxAttempts: 20,
-    windowMinutes: 60,
-  },
-} as const;
-
-export type RateLimitedAction = keyof typeof RATE_LIMITS;
+import { isValidEmail, isValidPhone } from "./helpers";
 
 export const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 export const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -125,6 +90,23 @@ export const validateAdminPin = (pin: string) => {
   return /^\d{4,6}$/.test(pin) ? "" : "Admin PIN must be 4 to 6 digits.";
 };
 
+export const validateHttpsUrl = (
+  value: string,
+  label: string,
+  required = false
+) => {
+  const input = value.trim();
+  if (!input && !required) return "";
+  if (!input) return `${label} is required.`;
+  if (input.length > 2048) return `${label} is too long.`;
+  try {
+    const url = new URL(input);
+    return url.protocol === "https:" ? "" : `${label} must use HTTPS.`;
+  } catch {
+    return `Enter a valid ${label.toLowerCase()}.`;
+  }
+};
+
 export const getSafeErrorMessage = (
   error: unknown,
   fallback = GENERIC_ERROR
@@ -158,22 +140,6 @@ export const getSafeErrorMessage = (
 export const logErrorForDev = (error: unknown, context: string) => {
   if (import.meta.env.DEV) {
     console.error(`[${context}]`, error);
-  }
-};
-
-export const getRateLimitIdentifierHash = async (identifier: string) => {
-  const cleaned = cleanText(identifier, 254).toLowerCase();
-  return hashPassword(cleaned || "anonymous");
-};
-
-export const getImageExtensionFromMime = (mime: string) => {
-  switch (mime) {
-    case "image/png":
-      return "png";
-    case "image/webp":
-      return "webp";
-    default:
-      return "jpg";
   }
 };
 

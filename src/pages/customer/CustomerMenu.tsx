@@ -310,6 +310,7 @@ const CustomerMenu: React.FC = () => {
               placeholder="Search dishes, descriptions, categories"
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
+              maxLength={100}
               className="w-full pl-10 pr-4 py-3.5 border border-[#e5d8ca] bg-white rounded-xl text-sm shadow-inner focus:outline-none focus:ring-2 focus:ring-[#8b5e34]/20"
             />
           </div>
@@ -1012,6 +1013,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
             value={customerName}
             onChange={(event) => setCustomerName(event.target.value)}
             placeholder="Name"
+            maxLength={100}
           />
           <Input
             label="Phone Number (Optional)"
@@ -1019,6 +1021,8 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
             value={customerPhone}
             onChange={(event) => setCustomerPhone(event.target.value)}
             placeholder="10-digit mobile number"
+            maxLength={16}
+            pattern="\+?[0-9]{10,15}"
           />
         </div>
 
@@ -1029,6 +1033,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({
             onChange={(event) => setNotes(event.target.value)}
             placeholder="Any special requests for the counter..."
             rows={3}
+            maxLength={300}
             className="input-field"
           />
         </div>

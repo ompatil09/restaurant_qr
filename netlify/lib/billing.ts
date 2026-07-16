@@ -3,10 +3,16 @@ import Stripe from "stripe";
 
 export class HttpError extends Error {
   statusCode: number;
+  headers?: Record<string, string>;
 
-  constructor(statusCode: number, message: string) {
+  constructor(
+    statusCode: number,
+    message: string,
+    headers?: Record<string, string>
+  ) {
     super(message);
     this.statusCode = statusCode;
+    this.headers = headers;
   }
 }
 
@@ -35,11 +41,40 @@ export interface BillingRestaurant {
   stripe_subscription_id?: string;
 }
 
-export const json = (statusCode: number, body: Record<string, unknown>) => ({
+export const json = (
+  statusCode: number,
+  body: Record<string, unknown>,
+  headers: Record<string, string> = {}
+) => ({
   statusCode,
-  headers: { "Content-Type": "application/json" },
+  headers: {
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    ...headers,
+  },
   body: JSON.stringify(body),
 });
+
+export const readJsonBody = <T extends Record<string, unknown>>(
+  event: FunctionEvent,
+  maxBytes = 16_384
+): T => {
+  const body = event.body || "";
+  if (!body || Buffer.byteLength(body, "utf8") > maxBytes) {
+    throw new HttpError(400, "Invalid request.");
+  }
+
+  try {
+    const value = JSON.parse(body);
+    if (!value || Array.isArray(value) || typeof value !== "object") {
+      throw new Error("Body must be an object");
+    }
+    return value as T;
+  } catch {
+    throw new HttpError(400, "Invalid request.");
+  }
+};
 
 export const requiredEnv = (name: string) => {
   const value = process.env[name];
@@ -58,6 +93,73 @@ export const supabaseRequest = (path: string, options: RequestInit = {}) => {
       ...(options.headers || {}),
     },
   });
+};
+
+export const supabasePublicRequest = (
+  path: string,
+  options: RequestInit = {}
+) => {
+  const publicKey =
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY;
+  if (!publicKey) throw new HttpError(500, "Server configuration is incomplete.");
+  return fetch(`${requiredEnv("SUPABASE_URL")}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      apikey: publicKey,
+      Authorization: `Bearer ${publicKey}`,
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+};
+
+const clientIp = (event: FunctionEvent) =>
+  event.headers?.["x-nf-client-connection-ip"] ||
+  event.headers?.["X-Nf-Client-Connection-Ip"] ||
+  "local";
+
+export const enforceRateLimit = async (
+  event: FunctionEvent,
+  action: string,
+  identity: string
+) => {
+  const identifierHash = crypto
+    .createHash("sha256")
+    .update(`${clientIp(event)}:${identity.trim().toLowerCase()}`, "utf8")
+    .digest("hex");
+  let response = await supabasePublicRequest("rpc/consume_api_rate_limit", {
+    method: "POST",
+    body: JSON.stringify({
+      p_action: action,
+      p_identifier_hash: identifierHash,
+    }),
+  });
+  // Part 5 compatibility until the Part 8 one-way limiter RPC is installed.
+  if (response.status === 404) {
+    response = await supabasePublicRequest("rpc/record_rate_limit_attempt", {
+      method: "POST",
+      body: JSON.stringify({
+        p_action: action,
+        p_identifier_hash: identifierHash,
+        p_success: false,
+      }),
+    });
+  }
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new HttpError(503, "Request protection is temporarily unavailable.");
+  }
+
+  const row = Array.isArray(payload) ? payload[0] : payload;
+  if (row?.allowed === false) {
+    const retryAfter = Math.max(1, Number(row.retry_after_seconds) || 60);
+    throw new HttpError(
+      429,
+      "Too many attempts. Please wait and try again.",
+      { "Retry-After": String(retryAfter) }
+    );
+  }
 };
 
 let stripeClient: Stripe | undefined;
@@ -129,12 +231,8 @@ export const requireRestaurantSession = (
   }
 };
 
-export const getBillingContext = async (event: FunctionEvent) => {
+export const getRestaurantContext = async (event: FunctionEvent) => {
   const session = requireRestaurantSession(event);
-  if (session.role !== "owner") {
-    throw new HttpError(403, "Only the restaurant owner can manage billing.");
-  }
-
   const userResponse = await supabaseRequest(
     `users?id=eq.${encodeURIComponent(session.userId)}` +
       `&restaurant_id=eq.${encodeURIComponent(session.restaurantId)}` +
@@ -159,9 +257,18 @@ export const getBillingContext = async (event: FunctionEvent) => {
   return { session, restaurant };
 };
 
+export const getBillingContext = async (event: FunctionEvent) => {
+  const context = await getRestaurantContext(event);
+  const { session } = context;
+  if (session.role !== "owner") {
+    throw new HttpError(403, "Only the restaurant owner can manage billing.");
+  }
+  return context;
+};
+
 export const functionError = (error: unknown, fallback: string) => {
   if (error instanceof HttpError) {
-    return json(error.statusCode, { error: error.message });
+    return json(error.statusCode, { error: error.message }, error.headers);
   }
   console.error(fallback, error instanceof Error ? error.message : error);
   return json(500, { error: fallback });

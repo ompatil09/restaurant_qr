@@ -30,6 +30,12 @@ import type { RegistrationRequest } from "../../config/supabase";
 import { formatDateTime, copyToClipboard, isValidEmail } from "../../utils/helpers";
 import { APP_CONFIG } from "../../config/config";
 
+interface LoginCredentials {
+  email: string;
+  password: string;
+  loginUrl: string;
+}
+
 const PendingRequests: React.FC = () => {
   const [requests, setRequests] = useState<RegistrationRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,7 +44,7 @@ const PendingRequests: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showCredentialsModal, setShowCredentialsModal] = useState(false);
-  const [credentials, setCredentials] = useState<any>(null);
+  const [credentials, setCredentials] = useState<LoginCredentials | null>(null);
 
   // Real-time subscription
   useEffect(() => {
@@ -213,6 +219,7 @@ const PendingRequests: React.FC = () => {
 
       {/* Create Account Modal */}
       <CreateAccountModal
+        key={selectedRequest?.id || "closed"}
         isOpen={showCreateModal}
         request={selectedRequest}
         onClose={() => {
@@ -254,7 +261,7 @@ interface CreateAccountModalProps {
   isOpen: boolean;
   request: RegistrationRequest | null;
   onClose: () => void;
-  onSuccess: (credentials: any) => void;
+  onSuccess: (credentials: LoginCredentials) => void;
 }
 
 const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
@@ -266,19 +273,10 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({
-    email: "",
+    email: request?.email || "",
     subscriptionPlan: "free",
     internalNotes: "",
   });
-
-  useEffect(() => {
-    if (request) {
-      setFormData((prev) => ({
-        ...prev,
-        email: request.email || "",
-      }));
-    }
-  }, [request]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -295,6 +293,14 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
       setError("Enter a valid email address.");
       return;
     }
+    if (!Object.prototype.hasOwnProperty.call(APP_CONFIG.plans, formData.subscriptionPlan)) {
+      setError("Select a valid subscription plan.");
+      return;
+    }
+    if (formData.internalNotes.trim().length > 500) {
+      setError("Internal notes must be 500 characters or less.");
+      return;
+    }
 
     if (!request) return;
 
@@ -302,7 +308,7 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
     const result = await createRestaurantAccount(request.id, {
       email: normalizedEmail,
       subscriptionPlan: formData.subscriptionPlan,
-      internalNotes: formData.internalNotes,
+      internalNotes: formData.internalNotes.trim(),
     });
 
     setLoading(false);
@@ -354,6 +360,7 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
           placeholder="owner@restaurant.com"
           required
           helperText="This will be used for login"
+          maxLength={254}
         />
 
         <Select
@@ -376,6 +383,7 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
           }
           placeholder="Add any internal notes..."
           rows={2}
+          maxLength={500}
         />
 
         {/* Info */}
@@ -422,6 +430,10 @@ const RejectModal: React.FC<RejectModalProps> = ({
       setError("Please provide a reason for rejection");
       return;
     }
+    if (reason.trim().length > 500) {
+      setError("Reason must be 500 characters or less.");
+      return;
+    }
 
     if (!request) return;
 
@@ -464,6 +476,7 @@ const RejectModal: React.FC<RejectModalProps> = ({
           placeholder="Please provide a reason..."
           required
           rows={3}
+          maxLength={500}
         />
 
         <div className="flex gap-3">
@@ -487,7 +500,7 @@ const RejectModal: React.FC<RejectModalProps> = ({
 // Credentials Display Modal
 interface CredentialsModalProps {
   isOpen: boolean;
-  credentials: any;
+  credentials: LoginCredentials | null;
   onClose: () => void;
 }
 

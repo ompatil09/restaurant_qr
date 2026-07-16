@@ -9,11 +9,13 @@ import {
 
 export const requestPasswordReset = async (email: string) => {
   try {
-    const { error } = await supabase.rpc("request_password_reset", {
-      p_email: normalizeEmail(email),
+    const response = await fetch("/.netlify/functions/request-password-reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: normalizeEmail(email) }),
     });
-
-    if (error) throw error;
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload?.error || "Unable to submit reset request.");
     return { success: true, error: null };
   } catch (error) {
     logErrorForDev(error, "request_password_reset");

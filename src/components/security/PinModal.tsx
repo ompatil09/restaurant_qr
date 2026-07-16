@@ -66,6 +66,9 @@ const PinModal: React.FC<PinModalProps> = ({
           value={pin}
           onChange={(event) => setPin(event.target.value)}
           placeholder="4 to 6 digits"
+          minLength={4}
+          maxLength={6}
+          pattern="[0-9]{4,6}"
           autoFocus
         />
         <div className="flex gap-3">

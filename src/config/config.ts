@@ -4,8 +4,29 @@
 
 export const SUPABASE_URL =
   import.meta.env.VITE_SUPABASE_URL || "YOUR_SUPABASE_URL";
-export const SUPABASE_ANON_KEY =
-  import.meta.env.VITE_SUPABASE_ANON_KEY || "YOUR_SUPABASE_ANON_KEY";
+const configuredSupabaseKey =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  "YOUR_SUPABASE_PUBLISHABLE_KEY";
+
+const isPrivateSupabaseKey = (key: string) => {
+  if (key.startsWith("sb_secret_")) return true;
+  const payload = key.split(".")[1];
+  if (!payload) return false;
+  try {
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const claims = JSON.parse(atob(normalized)) as { role?: string };
+    return claims.role === "service_role";
+  } catch {
+    return false;
+  }
+};
+
+if (isPrivateSupabaseKey(configuredSupabaseKey)) {
+  throw new Error("A private Supabase key cannot be used in the browser.");
+}
+
+export const SUPABASE_ANON_KEY = configuredSupabaseKey;
 
 // Application Configuration
 export const APP_CONFIG = {

@@ -22,8 +22,12 @@ const ForgotPasswordPage: React.FC = () => {
     }
 
     setLoading(true);
-    await requestPasswordReset(email);
+    const result = await requestPasswordReset(email);
     setLoading(false);
+    if (!result.success) {
+      setError(result.error || "Unable to submit reset request.");
+      return;
+    }
     setSubmitted(true);
   };
 
@@ -76,6 +80,7 @@ const ForgotPasswordPage: React.FC = () => {
                 placeholder="manager@example.com"
                 icon={<Mail className="w-5 h-5" />}
                 autoComplete="email"
+                maxLength={254}
                 required
               />
               <Button type="submit" loading={loading} fullWidth>

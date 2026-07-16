@@ -6,11 +6,9 @@ import type {
   MenuItem,
   Restaurant,
 } from "../config/supabase";
-import { checkRateLimit, recordRateLimitAttempt } from "./securityService";
 import {
   ALLOWED_IMAGE_TYPES,
   MAX_IMAGE_BYTES,
-  getImageExtensionFromMime,
   getSafeErrorMessage,
   logErrorForDev,
   validateImageBasic,
@@ -297,35 +295,57 @@ export const uploadRestaurantImage = async (
   }
 
   const user = getStoredRestaurantUser();
-  if (!user?.restaurant_id) {
-    return { url: null, error: new Error("Restaurant ID not found") };
+  if (!user?.session_token) {
+    return { url: null, error: new Error("Please sign in again before uploading.") };
   }
 
-  const limit = await checkRateLimit("image_upload", user.restaurant_id);
-  if (!limit.allowed) {
+  const prepareResponse = await fetch("/.netlify/functions/create-image-upload", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${user.session_token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ folder, mime: file.type, size: file.size }),
+  });
+  const upload = await prepareResponse.json().catch(() => ({}));
+  if (!prepareResponse.ok || !upload?.path || !upload?.token) {
+    if (prepareResponse.status === 500 && user?.restaurant_id) {
+      // ponytail: remove this compatibility path after Part 8 and the
+      // server-only Supabase key are both configured in Netlify.
+      const extension = file.type === "image/png"
+        ? "png"
+        : file.type === "image/webp"
+          ? "webp"
+          : "jpg";
+      const path = `${folder}/${user.restaurant_id}/${Date.now()}-${crypto.randomUUID()}.${extension}`;
+      const { error } = await supabase.storage.from("menu-images").upload(path, file, {
+        cacheControl: "3600",
+        contentType: file.type,
+        upsert: false,
+      });
+      if (!error) {
+        const { data } = supabase.storage.from("menu-images").getPublicUrl(path);
+        return { url: data.publicUrl, error: null };
+      }
+    }
     return {
       url: null,
-      error: new Error("Too many upload attempts. Please wait and try again."),
+      error: new Error(upload?.error || "Image upload is temporarily unavailable."),
     };
   }
 
-  const extension = getImageExtensionFromMime(file.type);
-  const safeName = `${folder}/${user.restaurant_id}/${Date.now()}-${crypto.randomUUID()}.${extension}`;
   const { error } = await supabase.storage
     .from("menu-images")
-    .upload(safeName, file, {
+    .uploadToSignedUrl(upload.path, upload.token, file, {
       cacheControl: "3600",
       contentType: file.type,
-      upsert: false,
     });
 
   if (error) {
-    await recordRateLimitAttempt("image_upload", user.restaurant_id, false);
     return { url: null, error: new Error(getSafeErrorMessage(error, "Image upload failed. Please try another image.")) };
   }
 
-  await recordRateLimitAttempt("image_upload", user.restaurant_id, true);
-  const { data } = supabase.storage.from("menu-images").getPublicUrl(safeName);
+  const { data } = supabase.storage.from("menu-images").getPublicUrl(upload.path);
   return { url: data.publicUrl, error: null };
 };
 

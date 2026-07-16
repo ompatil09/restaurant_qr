@@ -1,4 +1,5 @@
 import {
+  enforceRateLimit,
   functionError,
   type FunctionEvent,
   getBillingContext,
@@ -14,7 +15,8 @@ export const handler = async (event: FunctionEvent) => {
   }
 
   try {
-    const { restaurant } = await getBillingContext(event);
+    const { session, restaurant } = await getBillingContext(event);
+    await enforceRateLimit(event, "billing_write", session.userId);
     if (!restaurant.stripe_customer_id) {
       throw new HttpError(400, "No Stripe billing account exists yet.");
     }

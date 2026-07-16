@@ -28,18 +28,18 @@ const buildQrUrl = (restaurantSlug: string, tableToken: string) =>
   `${getCurrentOrigin()}/order/${restaurantSlug}/${tableToken}`;
 
 const Tables: React.FC = () => {
-  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
-  const [tables, setTables] = useState<RestaurantTable[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [editingTable, setEditingTable] = useState<RestaurantTable | null>(null);
-  const [busyTableId, setBusyTableId] = useState<string | null>(null);
-
-  const user = useMemo(
+  const user = useMemo<{ id?: string; restaurant_id?: string }>(
     () => JSON.parse(localStorage.getItem("user") || "{}"),
     []
   );
+  const hasUser = Boolean(user.id && user.restaurant_id);
+  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
+  const [tables, setTables] = useState<RestaurantTable[]>([]);
+  const [loading, setLoading] = useState(hasUser);
+  const [error, setError] = useState(hasUser ? "" : "Restaurant user not found");
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingTable, setEditingTable] = useState<RestaurantTable | null>(null);
+  const [busyTableId, setBusyTableId] = useState<string | null>(null);
 
   const actionContext: TableActionContext | null =
     user?.id && user?.restaurant_id
@@ -47,11 +47,7 @@ const Tables: React.FC = () => {
       : null;
 
   useEffect(() => {
-    if (!user?.id || !user?.restaurant_id) {
-      setError("Restaurant user not found");
-      setLoading(false);
-      return;
-    }
+    if (!user.id || !user.restaurant_id) return;
 
     const loadRestaurant = async () => {
       const { data, error: restaurantError } = await supabase
@@ -80,7 +76,7 @@ const Tables: React.FC = () => {
     return () => {
       subscription.unsubscribe();
     };
-  }, [user?.restaurant_id]);
+  }, [user.id, user.restaurant_id]);
 
   const activeTables = tables.filter((table) => table.is_active);
   const disabledTables = tables.filter((table) => !table.is_active);
@@ -260,6 +256,7 @@ const Tables: React.FC = () => {
       )}
 
       <TableModal
+        key={`add-${showAddModal}`}
         isOpen={showAddModal}
         title="Add Table"
         onClose={() => setShowAddModal(false)}
@@ -276,6 +273,7 @@ const Tables: React.FC = () => {
       />
 
       <TableModal
+        key={`edit-${editingTable?.id || "closed"}`}
         isOpen={Boolean(editingTable)}
         title="Rename Table"
         initialValue={editingTable?.table_number || ""}
@@ -405,17 +403,16 @@ const TableModal: React.FC<TableModalProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    setTableNumber(initialValue);
-    setError("");
-  }, [initialValue, isOpen]);
-
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const trimmedTableNumber = tableNumber.trim();
 
     if (!trimmedTableNumber) {
       setError("Table number or name is required");
+      return;
+    }
+    if (trimmedTableNumber.length > 20) {
+      setError("Table number or name must be 20 characters or less");
       return;
     }
 
@@ -440,6 +437,7 @@ const TableModal: React.FC<TableModalProps> = ({
           value={tableNumber}
           onChange={(event) => setTableNumber(event.target.value)}
           placeholder="e.g., 07, A1, Family Room"
+          maxLength={20}
           required
         />
         <div className="flex gap-3">

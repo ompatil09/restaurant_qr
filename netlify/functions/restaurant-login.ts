@@ -1,10 +1,12 @@
 import crypto from "node:crypto";
 import {
   createRestaurantSession,
+  enforceRateLimit,
   functionError,
   type FunctionEvent,
   json,
-  requiredEnv,
+  readJsonBody,
+  supabasePublicRequest,
 } from "../lib/billing.ts";
 
 const EMAIL_PATTERN = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i;
@@ -24,26 +26,13 @@ interface SupabaseError {
   message?: string;
 }
 
-const supabasePublicRequest = (path: string, options: RequestInit = {}) => {
-  const anonKey = requiredEnv("VITE_SUPABASE_ANON_KEY");
-  return fetch(`${requiredEnv("SUPABASE_URL")}/rest/v1/${path}`, {
-    ...options,
-    headers: {
-      apikey: anonKey,
-      Authorization: `Bearer ${anonKey}`,
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-  });
-};
-
 export const handler = async (event: FunctionEvent) => {
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Method not allowed" });
   }
 
   try {
-    const { email: rawEmail, password } = JSON.parse(event.body || "{}");
+    const { email: rawEmail, password } = readJsonBody(event, 1_024);
     const email = String(rawEmail || "").trim().toLowerCase();
     if (
       !EMAIL_PATTERN.test(email) ||
@@ -54,6 +43,7 @@ export const handler = async (event: FunctionEvent) => {
     ) {
       return json(400, { error: "Invalid email or password." });
     }
+    await enforceRateLimit(event, "restaurant_login_ip", email);
 
     const loginResponse = await supabasePublicRequest("rpc/restaurant_login", {
       method: "POST",

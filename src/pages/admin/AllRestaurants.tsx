@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Search,
   Eye,
@@ -43,9 +43,6 @@ const getDisplayPlan = (plan?: string) => {
 
 const AllRestaurants: React.FC = () => {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
-  const [filteredRestaurants, setFilteredRestaurants] = useState<Restaurant[]>(
-    []
-  );
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -66,8 +63,7 @@ const AllRestaurants: React.FC = () => {
     };
   }, []);
 
-  // Filter restaurants
-  useEffect(() => {
+  const filteredRestaurants = useMemo(() => {
     let filtered = restaurants;
 
     // Search filter
@@ -87,7 +83,7 @@ const AllRestaurants: React.FC = () => {
       filtered = filtered.filter((r) => r.status === statusFilter);
     }
 
-    setFilteredRestaurants(filtered);
+    return filtered;
   }, [restaurants, searchTerm, statusFilter]);
 
   const handleViewDetails = (restaurant: Restaurant) => {
@@ -165,6 +161,7 @@ const AllRestaurants: React.FC = () => {
               placeholder="Search by name, owner, phone, or city..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              maxLength={100}
               icon={<Search className="w-5 h-5" />}
             />
           </div>
@@ -477,6 +474,10 @@ const BlockModal: React.FC<BlockModalProps> = ({
       setError("Please provide a reason for blocking");
       return;
     }
+    if (reason.trim().length > 500) {
+      setError("Reason must be 500 characters or less.");
+      return;
+    }
 
     if (!restaurant) return;
 
@@ -484,7 +485,7 @@ const BlockModal: React.FC<BlockModalProps> = ({
     const success = await toggleRestaurantStatus(
       restaurant.id,
       isBlocked,
-      reason
+      reason.trim()
     );
     setLoading(false);
 
@@ -539,6 +540,7 @@ const BlockModal: React.FC<BlockModalProps> = ({
             placeholder="Please provide a reason..."
             required
             rows={3}
+            maxLength={500}
           />
         )}
 

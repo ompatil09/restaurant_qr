@@ -173,7 +173,11 @@ const Reports: React.FC<ReportsProps> = ({ restaurant }) => {
     } catch (error) {
       logErrorForDev(error, "fetchReportsAnalytics");
       setData(null);
-      setErrorMessage("Reports are temporarily unavailable. Please try again.");
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Reports are temporarily unavailable. Please try again."
+      );
     } finally {
       setLoading(false);
     }

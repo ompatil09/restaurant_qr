@@ -696,6 +696,7 @@ const RejectOrderModal: React.FC<RejectOrderModalProps> = ({
           onChange={(event) => setReason(event.target.value)}
           placeholder="E.g., Out of stock, kitchen closed, customer requested, etc."
           rows={3}
+          maxLength={300}
         />
 
         <div className="flex gap-3">

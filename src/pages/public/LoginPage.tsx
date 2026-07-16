@@ -8,6 +8,7 @@ import {
   getSafeErrorMessage,
   logErrorForDev,
   normalizeEmail,
+  validatePassword,
 } from "../../utils/security";
 
 const LoginPage: React.FC = () => {
@@ -30,6 +31,11 @@ const LoginPage: React.FC = () => {
 
     if (!isValidEmail(formData.email)) {
       setError("Please enter a valid email address");
+      return;
+    }
+    const passwordError = validatePassword(formData.password);
+    if (passwordError) {
+      setError(passwordError);
       return;
     }
 
@@ -129,6 +135,7 @@ const LoginPage: React.FC = () => {
               icon={<Mail className="w-5 h-5" />}
               required
               autoComplete="email"
+              maxLength={254}
             />
 
             <Input
@@ -141,6 +148,7 @@ const LoginPage: React.FC = () => {
               icon={<Lock className="w-5 h-5" />}
               required
               autoComplete="current-password"
+              maxLength={128}
             />
 
             <div className="flex items-center justify-between text-sm">

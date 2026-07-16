@@ -10,7 +10,6 @@ import {
   Card,
 } from "../../components/ui";
 import { APP_CONFIG } from "../../config/config";
-import { supabase } from "../../config/supabase";
 import {
   cleanText,
   getSafeErrorMessage,
@@ -33,15 +32,6 @@ interface FormData {
   heard_from: string;
   notes: string;
 }
-
-const isMissingRegistrationRpc = (error: any) => {
-  const message = String(error?.message || "").toLowerCase();
-  return (
-    error?.code === "PGRST202" ||
-    (message.includes("submit_registration_request") &&
-      (message.includes("schema cache") || message.includes("function")))
-  );
-};
 
 const RegisterPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
@@ -121,33 +111,14 @@ const RegisterPage: React.FC = () => {
         notes: cleanText(formData.notes, 500) || null,
       };
 
-      const { error: insertError } = await supabase.rpc(
-        "submit_registration_request",
-        {
-          p_restaurant_name: registrationPayload.restaurant_name,
-          p_owner_name: registrationPayload.owner_name,
-          p_phone: registrationPayload.phone,
-          p_email: registrationPayload.email,
-          p_city: registrationPayload.city,
-          p_address: registrationPayload.address,
-          p_restaurant_type: registrationPayload.restaurant_type,
-          p_heard_from: registrationPayload.heard_from,
-          p_notes: registrationPayload.notes,
-        }
-      );
-
-      if (insertError) {
-        if (!isMissingRegistrationRpc(insertError)) {
-          throw insertError;
-        }
-
-        const { error: fallbackError } = await supabase
-          .from("registration_requests")
-          .insert([{ ...registrationPayload, status: "pending" }]);
-
-        if (fallbackError) {
-          throw fallbackError;
-        }
+      const response = await fetch("/.netlify/functions/submit-registration", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(registrationPayload),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error || "Registration could not be submitted.");
       }
 
       // Success!
@@ -155,7 +126,7 @@ const RegisterPage: React.FC = () => {
 
       // TODO: In production, send confirmation email to restaurant
       // TODO: Send notification to admin panel
-    } catch (err: any) {
+    } catch (err: unknown) {
       logErrorForDev(err, "submit_registration_request");
       setError(
         getSafeErrorMessage(
@@ -280,6 +251,7 @@ const RegisterPage: React.FC = () => {
                   onChange={handleChange}
                   error={errors.restaurant_name}
                   placeholder="e.g., Tasty Bites Restaurant"
+                  maxLength={100}
                   required
                 />
 
@@ -304,6 +276,7 @@ const RegisterPage: React.FC = () => {
                     onChange={handleChange}
                     error={errors.city}
                     placeholder="e.g., Mumbai"
+                    maxLength={80}
                     required
                   />
 
@@ -313,6 +286,7 @@ const RegisterPage: React.FC = () => {
                     value={formData.address}
                     onChange={handleChange}
                     placeholder="Street address"
+                    maxLength={250}
                   />
                 </div>
               </div>
@@ -331,6 +305,7 @@ const RegisterPage: React.FC = () => {
                   onChange={handleChange}
                   error={errors.owner_name}
                   placeholder="Your full name"
+                  maxLength={100}
                   required
                 />
 
@@ -343,6 +318,8 @@ const RegisterPage: React.FC = () => {
                     onChange={handleChange}
                     error={errors.phone}
                     placeholder="10-digit mobile number"
+                    maxLength={16}
+                    pattern="\+?[0-9]{10,15}"
                     required
                   />
 
@@ -354,6 +331,7 @@ const RegisterPage: React.FC = () => {
                     onChange={handleChange}
                     error={errors.email}
                     placeholder="your@email.com"
+                    maxLength={254}
                     required
                   />
                 </div>
@@ -384,6 +362,7 @@ const RegisterPage: React.FC = () => {
                   onChange={handleChange}
                   placeholder="Any specific requirements or questions..."
                   rows={3}
+                  maxLength={500}
                 />
               </div>
             </div>

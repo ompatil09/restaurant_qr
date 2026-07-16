@@ -44,7 +44,7 @@ Create `.env`:
 
 ```bash
 VITE_SUPABASE_URL=your_project_url
-VITE_SUPABASE_ANON_KEY=your_anon_key
+VITE_SUPABASE_PUBLISHABLE_KEY=your_publishable_key
 ```
 
 For a new Supabase project, run:
@@ -63,6 +63,9 @@ database/counter_premium_part3b.sql
 database/production_hardening_part4.sql
 database/security_hardening_part5.sql
 database/subscription_auth_fixes_part6.sql
+database/reports_analytics_part7.sql
+database/stripe_billing_hardening_part7.sql
+database/reports_input_security_part8.sql
 ```
 
 If your Supabase project was already created before these migrations, run the files above in order from the Supabase SQL editor. They are written to be idempotent with `ADD COLUMN IF NOT EXISTS` where possible.
@@ -160,7 +163,7 @@ Final GST is shown only on the printed bill summary when GST display is enabled 
 
 Menu and branding image uploads use the public-read `menu-images` Storage bucket created by `database/premium_menu_part3.sql`.
 
-Because this project uses a lightweight custom/localStorage restaurant login instead of Supabase Auth, database writes are protected through scoped RPC functions. `database/security_hardening_part5.sql` narrows Storage uploads to the `menu/` and `branding/` folders, JPG/PNG/WebP MIME types, and 3 MB metadata. For stricter production security, move uploads behind a Netlify Function or Supabase Edge Function that uses server-only credentials and verifies the restaurant session before uploading.
+Because this project uses a lightweight custom/localStorage restaurant login instead of Supabase Auth, database writes are protected through scoped RPC functions. Image writes use a short-lived signed upload URL issued by an authenticated Netlify Function. `database/reports_input_security_part8.sql` removes anonymous Storage writes and enforces JPG/PNG/WebP MIME types with a 3 MB limit.
 
 Uploaded images are validated before upload:
 
@@ -230,30 +233,35 @@ Run this migration manually in the Supabase SQL editor before shipping:
 ```text
 database/security_hardening_part5.sql
 database/subscription_auth_fixes_part6.sql
+database/reports_analytics_part7.sql
+database/stripe_billing_hardening_part7.sql
+database/reports_input_security_part8.sql
 ```
 
 It adds:
 
-- `rate_limits` table with hashed identifiers
-- `check_rate_limit`, `record_rate_limit_attempt`, and `clear_rate_limit` RPC helpers
-- rate-limited `admin_login`, `restaurant_login`, `submit_registration_request`, `restaurant_change_password`, and `create_customer_order`
-- input constraints for restaurants, registration requests, tables, menu items, and orders
-- narrowed Storage policies for menu/branding image uploads
+- server-only rate-limit helpers with hashed identifiers and IP-aware Netlify limits
+- rate-limited login, registration, password reset, order, report, billing, and image-upload boundaries
+- database input validation for restaurant settings, menu items, options, and customer orders
+- authenticated signed uploads with anonymous Storage writes disabled
+- tenant-bound Reports data served through an authenticated Netlify Function
 
 Production Netlify environment variables:
 
 ```env
 VITE_SUPABASE_URL=https://your-project-id.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-or-publishable-key
+VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 ```
+
+Set `SUPABASE_SERVICE_ROLE_KEY` in Netlify before running Part 8. It is used
+only by authenticated server functions for signed image uploads and billing;
+it must never use a `VITE_` prefix.
 
 Only use `VITE_` variables for public frontend values. Do not add service-role keys, database passwords, JWT secrets, or private API tokens to frontend code. `.env`, `.env.local`, `.netlify/`, `backups/`, dumps, and SQL backups are ignored by git.
 
-Current production blockers to understand:
+Current architecture constraint to understand:
 
-- True per-IP rate limiting is not possible from a static frontend that calls Supabase directly. Use Netlify Functions or Supabase Edge Functions for IP-aware throttling.
 - The custom localStorage auth model prevents perfect RLS for admin and restaurant dashboards. Supabase Auth or a server-side API layer is required for strict per-user RLS enforcement.
-- Storage upload authorization is narrowed but still not equivalent to authenticated server-side upload enforcement.
 
 ## Subscription Billing
 
@@ -376,8 +384,7 @@ existing Netlify site must be linked to GitHub by a Netlify account owner:
 
 ```env
 VITE_SUPABASE_URL
-VITE_SUPABASE_ANON_KEY
-VITE_STRIPE_PUBLISHABLE_KEY
+VITE_SUPABASE_PUBLISHABLE_KEY
 STRIPE_SECRET_KEY
 STRIPE_WEBHOOK_SECRET
 STRIPE_PRICE_ID_RESTAURANT_MONTHLY

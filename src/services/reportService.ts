@@ -1,5 +1,3 @@
-import { supabase } from "../config/supabase";
-
 export type ReportPreset =
   | "today"
   | "yesterday"
@@ -121,8 +119,13 @@ const addDays = (date: Date, days: number) => {
   return value;
 };
 
-const parseDateInput = (value: string) =>
-  value ? startOfDay(new Date(`${value}T00:00:00`)) : null;
+const parseDateInput = (value: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = startOfDay(new Date(`${value}T00:00:00`));
+  return Number.isFinite(date.getTime()) && toDateInputValue(date) === value
+    ? date
+    : null;
+};
 
 export const toDateInputValue = (date: Date) => {
   const year = date.getFullYear();
@@ -173,7 +176,15 @@ export const buildReportRange = (
 
   const start = parseDateInput(customStart);
   const inclusiveEnd = parseDateInput(customEnd);
-  if (!start || !inclusiveEnd || inclusiveEnd < start) return null;
+  if (
+    !start ||
+    !inclusiveEnd ||
+    inclusiveEnd < start ||
+    inclusiveEnd > today ||
+    inclusiveEnd.getTime() - start.getTime() > 365 * 86_400_000
+  ) {
+    return null;
+  }
 
   return {
     start,
@@ -185,24 +196,33 @@ export const buildReportRange = (
 
 export const fetchReportsAnalytics = async (range: ReportRange) => {
   const user = JSON.parse(localStorage.getItem("user") || "{}");
-  if (!user?.id || !user?.restaurant_id) {
+  if (!user?.session_token) {
     return { data: null, error: new Error("Restaurant session not found") };
   }
 
-  const { data, error } = await supabase.rpc(
-    "restaurant_get_reports_analytics",
-    {
-      p_user_id: user.id,
-      p_restaurant_id: user.restaurant_id,
-      p_start_date: range.start.toISOString(),
-      p_end_date: range.end.toISOString(),
-      p_group_by: range.groupBy,
-      p_order_limit: 100,
+  try {
+    const response = await fetch("/.netlify/functions/reports", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${user.session_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        start: range.start.toISOString(),
+        end: range.end.toISOString(),
+        groupBy: range.groupBy,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload?.data) {
+      throw new Error(payload?.error || "Reports are temporarily unavailable.");
     }
-  );
 
-  return {
-    data: error ? null : (data as ReportsAnalytics),
-    error,
-  };
+    return { data: payload.data as ReportsAnalytics, error: null };
+  } catch (error) {
+    return {
+      data: null,
+      error: error instanceof Error ? error : new Error("Unable to load reports."),
+    };
+  }
 };
