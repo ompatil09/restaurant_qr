@@ -106,3 +106,66 @@ html {
   outline: 2px solid currentColor;
   outline-offset: 3px;
 }
+
+.product-stage,
+.demo-stage {
+  perspective: 1400px;
+}
+
+.product-plane {
+  transform: rotateX(5deg) rotateZ(-0.5deg);
+  transform-origin: center bottom;
+  transition: transform 450ms ease, box-shadow 450ms ease;
+}
+
+.product-float,
+.demo-plane {
+  transition: transform 450ms ease, box-shadow 450ms ease;
+}
+
+.product-stage:hover .product-plane {
+  transform: rotateX(1deg) rotateZ(0);
+}
+
+.product-stage:hover .product-float {
+  transform: translateY(-6px);
+}
+
+.demo-plane {
+  transform: rotateX(3deg) rotateY(-2deg);
+  transform-origin: center;
+}
+
+.demo-plane:hover {
+  transform: rotateX(0) rotateY(0) translateY(-4px);
+}
+
+@keyframes demo-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.demo-enter {
+  animation: demo-enter 250ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .product-plane,
+  .product-float,
+  .demo-plane,
+  .demo-enter {
+    animation: none;
+    transition: none;
+  }
+}

@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 // Public pages
 import LandingPage from "./pages/public/LandingPage";
+import HowItWorksPage from "./pages/public/HowItWorksPage";
 import RegisterPage from "./pages/public/RegisterPage";
 import LoginPage from "./pages/public/LoginPage";
 import ForgotPasswordPage from "./pages/public/ForgotPasswordPage";
@@ -25,6 +26,7 @@ function App() {
       <Routes>
         {/* Public Routes */}
         <Route path="/" element={<LandingPage />} />
+        <Route path="/how-it-works" element={<HowItWorksPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
