@@ -1,5 +1,12 @@
 # Database Setup Guide
 
+## Reports Analytics Migration
+
+After the existing setup and authentication migrations, run
+`reports_analytics_part7.sql` once in the Supabase SQL Editor. It adds the
+date-bounded analytics RPC used by the restaurant Reports page. Reports do not
+use realtime and do not load historical order rows on page load.
+
 ## Prerequisites
 
 - A Supabase project created at [supabase.com](https://supabase.com)

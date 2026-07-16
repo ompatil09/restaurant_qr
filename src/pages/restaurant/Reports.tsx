@@ -1,656 +1,586 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  CheckCircle,
-  Clock,
-  DollarSign,
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ComposedChart,
+  Line,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  BarChart3,
+  CalendarDays,
+  CheckCircle2,
+  Clock3,
   Download,
-  FileText,
+  IndianRupee,
+  Lightbulb,
   Package,
   Printer,
+  ReceiptText,
   ShoppingBag,
+  Table2,
   Trophy,
+  XCircle,
 } from "lucide-react";
 import { Button, Card, Loading } from "../../components/ui";
+import { TableBillPanel } from "../../components/reports/TableBillPanel";
+import type { Restaurant } from "../../config/supabase";
+import { APP_CONFIG } from "../../config/config";
 import {
-  escapeHtml,
-  formatCurrency,
-  formatDateTime,
-  printHtml,
-} from "../../utils/helpers";
-import {
-  getRestaurantOrdersForRange,
-  getTopSellingItems,
-  markOrderPrinted,
-} from "../../services/restaurantService";
+  buildReportRange,
+  fetchReportsAnalytics,
+  toDateInputValue,
+  type ReportPreset,
+  type ReportsAnalytics,
+} from "../../services/reportService";
+import { formatCurrency, formatDateTime } from "../../utils/helpers";
 import { logErrorForDev } from "../../utils/security";
-import { supabase } from "../../config/supabase";
-import type { Order, OrderItem, Restaurant } from "../../config/supabase";
 
-interface ReportData {
-  orders: Order[];
-  totalRevenue: number;
-  totalOrders: number;
-  avgOrderValue: number;
-  openOrders: number;
-  servedOrders: number;
-  mostActiveTable: string;
-  topItems: { name: string; count: number; revenue: number }[];
-  dailyRevenue: { date: string; revenue: number; orders: number }[];
-  orderTypeDistribution: { type: string; count: number }[];
+interface ReportsProps {
+  restaurant: Restaurant | null;
 }
 
-const getItemTotal = (item: OrderItem) =>
-  item.item_total ?? (item.unit_price ?? item.base_price ?? 0) * item.quantity;
+type DetailView = "items" | "tables" | "orders";
 
-const getOrderSubtotal = (order: Order) => order.subtotal || order.total || 0;
+const CHART_COLORS = [
+  "#214c37",
+  "#4f705e",
+  "#789181",
+  "#a5b4aa",
+  "#68706a",
+  "#c5cec8",
+];
 
-const Reports: React.FC = () => {
+const tooltipStyle = {
+  border: "1px solid #deded8",
+  borderRadius: 6,
+  boxShadow: "0 8px 24px rgba(23, 25, 22, 0.08)",
+};
+
+const formatHour = (hour: number) => {
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const value = hour % 12 || 12;
+  return `${value} ${suffix}`;
+};
+
+const formatTrendLabel = (value: string, groupBy: "hour" | "day") => {
+  const date = new Date(value);
+  return groupBy === "hour"
+    ? date.toLocaleTimeString("en-IN", { hour: "numeric" })
+    : date.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+};
+
+const foodTypeLabel = (value: string) =>
+  ({ veg: "Veg", non_veg: "Non-Veg", egg: "Egg", jain: "Jain" }[value] ||
+  "Unknown");
+
+const statusLabel = (value: string) =>
+  value.charAt(0).toUpperCase() + value.slice(1).replace(/_/g, " ");
+
+const escapeCsv = (value: string | number) =>
+  `"${String(value).replace(/"/g, '""')}"`;
+
+const downloadCsv = (filename: string, rows: (string | number)[][]) => {
+  const content = rows.map((row) => row.map(escapeCsv).join(",")).join("\n");
+  const blob = new Blob([`\uFEFF${content}`], {
+    type: "text/csv;charset=utf-8",
+  });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  window.URL.revokeObjectURL(url);
+};
+
+const MetricCard: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  helper: string;
+}> = ({ icon, label, value, helper }) => (
+  <Card className="min-h-[138px] rounded-[8px] p-5">
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-text-secondary">{label}</p>
+        <p className="mt-2 break-words text-2xl font-bold leading-tight text-text">
+          {value}
+        </p>
+        <p className="mt-2 text-xs text-text-secondary">{helper}</p>
+      </div>
+      <span className="flex h-10 w-10 flex-none items-center justify-center rounded-[6px] bg-[#edf2ee] text-[#214c37]">
+        {icon}
+      </span>
+    </div>
+  </Card>
+);
+
+const ChartCard: React.FC<{
+  title: string;
+  description: string;
+  children: React.ReactNode;
+  className?: string;
+}> = ({ title, description, children, className = "" }) => (
+  <Card className={`rounded-[8px] p-5 sm:p-6 ${className}`}>
+    <h3 className="font-bold text-text">{title}</h3>
+    <p className="mt-1 text-sm text-text-secondary">{description}</p>
+    <div className="mt-5 h-72 min-w-0">{children}</div>
+  </Card>
+);
+
+const EmptyChart: React.FC<{ message: string }> = ({ message }) => (
+  <div className="flex h-full items-center justify-center rounded-[6px] border border-dashed border-border text-sm text-text-secondary">
+    {message}
+  </div>
+);
+
+const Reports: React.FC<ReportsProps> = ({ restaurant }) => {
+  const todayInput = toDateInputValue(new Date());
+  const [preset, setPreset] = useState<ReportPreset>("today");
+  const [customStart, setCustomStart] = useState(todayInput);
+  const [customEnd, setCustomEnd] = useState(todayInput);
+  const [detailView, setDetailView] = useState<DetailView>("items");
+  const [data, setData] = useState<ReportsAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
-  const [reportData, setReportData] = useState<ReportData | null>(null);
-  const [dateRange, setDateRange] = useState<"1" | "7" | "30">("30");
-  const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
-  const [selectedTableNumber, setSelectedTableNumber] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
 
-  const fetchReportData = useCallback(async () => {
+  const range = useMemo(
+    () => buildReportRange(preset, customStart, customEnd),
+    [customEnd, customStart, preset]
+  );
+
+  const loadReports = useCallback(async () => {
+    if (!range) {
+      setErrorMessage("Choose a valid custom date range.");
+      return;
+    }
+
     setLoading(true);
+    setErrorMessage("");
     try {
-      const user = JSON.parse(localStorage.getItem("user") || "{}");
-      if (!user.restaurant_id) {
-        setReportData(null);
-        return;
-      }
-
-      const days = parseInt(dateRange);
-      const [
-        { data: fetchedOrders, error },
-        { data: rpcTopItems },
-        { data: restaurantData },
-      ] =
-        await Promise.all([
-          getRestaurantOrdersForRange(user.restaurant_id, days),
-          getTopSellingItems(user.restaurant_id, days),
-          supabase
-            .from("restaurants")
-            .select("*")
-            .eq("id", user.restaurant_id)
-            .single(),
-        ]);
-
-      if (error) throw error;
-
-      const orders =
-        fetchedOrders?.filter(
-          (order) => !["cancelled", "rejected"].includes(order.status)
-        ) || [];
-
-      const totalRevenue = orders.reduce(
-        (sum, order) => sum + (order.subtotal || order.total || 0),
-        0
-      );
-      const totalOrders = orders.length;
-      const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-      const openOrders = orders.filter((order) =>
-        ["new", "pending", "accepted", "preparing", "ready"].includes(
-          order.status
-        )
-      ).length;
-      const servedOrders = orders.filter((order) =>
-        ["served", "completed"].includes(order.status)
-      ).length;
-      const tableCounts = orders.reduce<Record<string, number>>((counts, order) => {
-        if (order.table_number) {
-          counts[order.table_number] = (counts[order.table_number] || 0) + 1;
-        }
-        return counts;
-      }, {});
-      const busiestTable = Object.entries(tableCounts).sort(
-        ([, a], [, b]) => b - a
-      )[0]?.[0];
-
-      const topItems = (rpcTopItems || [])
-        .map((item) => ({
-          name: item.item_name,
-          count: item.quantity_sold,
-          revenue: item.revenue,
-        }))
-        .slice(0, 5);
-
-      const dailyData: Record<string, { revenue: number; orders: number }> = {};
-      orders.forEach((order) => {
-        const date = new Date(order.created_at).toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-        });
-        if (!dailyData[date]) {
-          dailyData[date] = { revenue: 0, orders: 0 };
-        }
-        dailyData[date].revenue += order.subtotal || order.total || 0;
-        dailyData[date].orders += 1;
-      });
-
-      const dailyRevenue = Object.entries(dailyData)
-        .map(([date, data]) => ({ date, ...data }))
-        .slice(-14);
-
-      const typeCounts: Record<string, number> = {};
-      orders.forEach((order) => {
-        const type = order.order_type || "unknown";
-        typeCounts[type] = (typeCounts[type] || 0) + 1;
-      });
-
-      setReportData({
-        orders,
-        totalRevenue,
-        totalOrders,
-        avgOrderValue,
-        openOrders,
-        servedOrders,
-        mostActiveTable: busiestTable ? `Table ${busiestTable}` : "No table yet",
-        topItems,
-        dailyRevenue,
-        orderTypeDistribution: Object.entries(typeCounts).map(
-          ([type, count]) => ({ type, count })
-        ),
-      });
-      setRestaurant(restaurantData as Restaurant | null);
+      const result = await fetchReportsAnalytics(range);
+      if (result.error || !result.data) throw result.error;
+      setData(result.data);
     } catch (error) {
-      logErrorForDev(error, "fetchReportData");
-      setReportData(null);
+      logErrorForDev(error, "fetchReportsAnalytics");
+      setData(null);
+      setErrorMessage("Reports are temporarily unavailable. Please try again.");
     } finally {
       setLoading(false);
     }
-  }, [dateRange]);
+  }, [range]);
 
   useEffect(() => {
-    fetchReportData();
-  }, [fetchReportData]);
+    loadReports();
+  }, [loadReports]);
 
-  const tableOptions = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return [
-      ...new Set(
-        (reportData?.orders || [])
-          .filter((order) => new Date(order.created_at) >= today)
-          .map((order) => order.table_number)
-          .filter((tableNumber): tableNumber is string => Boolean(tableNumber))
-      ),
-    ].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-  }, [reportData]);
-
-  const activeTableNumber = tableOptions.includes(selectedTableNumber)
-    ? selectedTableNumber
-    : tableOptions[0] || "";
-  const tableOrders = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return (reportData?.orders || [])
-      .filter(
-        (order) =>
-          new Date(order.created_at) >= today &&
-          order.table_number === activeTableNumber
-      )
-      .sort(
-        (a, b) =>
-          new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      );
-  }, [activeTableNumber, reportData]);
-
-  const tableSubtotal = tableOrders.reduce(
-    (sum, order) => sum + getOrderSubtotal(order),
-    0
+  const trendData = useMemo(
+    () =>
+      (data?.revenue_trend || []).map((point) => ({
+        ...point,
+        label: formatTrendLabel(point.period_start, range?.groupBy || "day"),
+      })),
+    [data, range?.groupBy]
   );
 
-  const handlePrintBill = async () => {
-    if (tableOrders.length === 0) return;
+  const hourlyData = useMemo(
+    () =>
+      (data?.hourly_rush || []).map((point) => ({
+        ...point,
+        label: formatHour(point.hour),
+      })),
+    [data]
+  );
 
-    const cgstRate = restaurant?.gst_enabled ? restaurant.cgst_rate || 0 : 0;
-    const sgstRate = restaurant?.gst_enabled ? restaurant.sgst_rate || 0 : 0;
-    const cgst = (tableSubtotal * cgstRate) / 100;
-    const sgst = (tableSubtotal * sgstRate) / 100;
-    const total = tableSubtotal + cgst + sgst;
-    const billNumber = `BILL-${new Date()
-      .toISOString()
-      .slice(0, 10)
-      .replace(/-/g, "")}-${activeTableNumber}`;
-    const html = `
-      <div class="center">
-        <h2>${escapeHtml(restaurant?.name || "Restaurant")}</h2>
-        <p class="muted">Bill Summary</p>
-      </div>
-      <div class="line"></div>
-      <div class="row"><span>Bill</span><span class="strong">${escapeHtml(
-        billNumber
-      )}</span></div>
-      <div class="row"><span>Table</span><span class="strong">${escapeHtml(
-        activeTableNumber
-      )}</span></div>
-      <div class="row"><span>Date</span><span>${escapeHtml(
-        formatDateTime(new Date().toISOString())
-      )}</span></div>
-      <div class="line"></div>
-      <table>
-        <thead>
-          <tr><th>Item</th><th>Qty</th><th>Price</th><th>Amt</th></tr>
-        </thead>
-        <tbody>
-          ${tableOrders
-            .flatMap((order) =>
-              order.items.map(
-                (item) => `
-                  <tr>
-                    <td>${escapeHtml(item.name)}</td>
-                    <td>${item.quantity}</td>
-                    <td>${escapeHtml(
-                      formatCurrency(
-                        item.unit_price ??
-                          item.base_price ??
-                          getItemTotal(item) / item.quantity
-                      )
-                    )}</td>
-                    <td>${escapeHtml(formatCurrency(getItemTotal(item)))}</td>
-                  </tr>
-                `
-              )
-            )
-            .join("")}
-        </tbody>
-      </table>
-      <div class="line"></div>
-      <div class="row"><span>Subtotal</span><span>${escapeHtml(
-        formatCurrency(tableSubtotal)
-      )}</span></div>
-      ${
-        restaurant?.gst_enabled
-          ? `
-            <div class="row"><span>CGST ${cgstRate}%</span><span>${escapeHtml(
-              formatCurrency(cgst)
-            )}</span></div>
-            <div class="row"><span>SGST ${sgstRate}%</span><span>${escapeHtml(
-              formatCurrency(sgst)
-            )}</span></div>
-          `
-          : ""
-      }
-      <div class="row strong"><span>Total</span><span>${escapeHtml(
-        formatCurrency(total)
-      )}</span></div>
-      <div class="line"></div>
-      <p class="center muted">Please pay using the UPI QR placed on your table or at the counter.</p>
-    `;
-
-    if (printHtml(`Bill Table ${activeTableNumber}`, html)) {
-      await Promise.all(
-        tableOrders.map((order) => markOrderPrinted(order.id, "bill"))
+  const insights = useMemo(() => {
+    if (!data) return [];
+    const result: string[] = [];
+    if (data.overview.top_item_name) {
+      result.push(
+        `${data.overview.top_item_name} led sales with ${data.overview.top_item_quantity} items sold.`
       );
     }
-  };
+    if (data.overview.most_active_table) {
+      result.push(
+        `${data.overview.most_active_table === "Counter" ? "Counter orders" : `Table ${data.overview.most_active_table}`} generated the most orders in this period.`
+      );
+    }
+    const peak = [...data.hourly_rush].sort(
+      (a, b) => b.order_count - a.order_count
+    )[0];
+    if (peak) {
+      result.push(`The busiest hour started at ${formatHour(peak.hour)}.`);
+    }
+    if (
+      data.overview.total_orders > 0 &&
+      data.overview.cancelled_orders / data.overview.total_orders >= 0.1
+    ) {
+      result.push("Cancelled orders are above 10%. Review service delays.");
+    }
+    result.push(
+      `Average order value was ${formatCurrency(data.overview.average_order_value)}.`
+    );
+    return result.slice(0, 4);
+  }, [data]);
 
   const exportReport = () => {
-    if (!reportData) return;
-
-    const csvContent = [
-      ["Metric", "Value"],
-      ["Total Revenue", formatCurrency(reportData.totalRevenue)],
-      ["Total Orders", reportData.totalOrders.toString()],
-      ["Average Order Value", formatCurrency(reportData.avgOrderValue)],
-      [""],
-      ["Top Items", "Quantity", "Revenue"],
-      ...reportData.topItems.map((item) => [
-        item.name,
-        item.count.toString(),
-        formatCurrency(item.revenue),
+    if (!data || !range) return;
+    const rows: (string | number)[][] = [
+      [`${APP_CONFIG.appName} Reports`, range.label],
+      ["Revenue before GST", data.overview.total_revenue],
+      ["Total orders", data.overview.total_orders],
+      ["Average order value", data.overview.average_order_value],
+      ["Items sold", data.overview.items_sold],
+      ["Served orders", data.overview.served_orders],
+      ["Cancelled orders", data.overview.cancelled_orders],
+      [],
+      ["Top Items"],
+      ["Item", "Category", "Food type", "Quantity", "Revenue", "Average price"],
+      ...data.top_items.map((item) => [
+        item.item_name,
+        item.category_name,
+        foodTypeLabel(item.food_type),
+        item.quantity_sold,
+        item.revenue,
+        item.average_price,
       ]),
-    ]
-      .map((row) => row.join(","))
-      .join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv" });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `report-${dateRange}-days.csv`;
-    link.click();
-    window.URL.revokeObjectURL(url);
+      [],
+      ["Orders"],
+      ["Order", "Table", "Time", "Status", "Items", "Before GST"],
+      ...data.orders.map((order) => [
+        order.order_number,
+        order.table_number,
+        formatDateTime(order.created_at),
+        statusLabel(order.status),
+        order.items_count,
+        order.subtotal,
+      ]),
+    ];
+    downloadCsv(
+      `rasivo-report-${range.start.toISOString().slice(0, 10)}.csv`,
+      rows
+    );
   };
 
-  if (loading) {
-    return <Loading text="Loading reports..." />;
-  }
+  if (loading && !data) return <Loading text="Loading reports..." />;
 
-  if (!reportData) {
+  if (!data) {
     return (
-      <div className="text-center text-text-secondary">No data available</div>
+      <Card className="mx-auto max-w-2xl rounded-[8px] py-12 text-center">
+        <BarChart3 className="mx-auto h-8 w-8 text-text-secondary" />
+        <h2 className="mt-4 text-xl font-bold">Reports unavailable</h2>
+        <p className="mt-2 text-text-secondary">{errorMessage}</p>
+        <Button className="mt-6" onClick={loadReports}>Retry</Button>
+      </Card>
     );
   }
 
-  const maxDailyRevenue = Math.max(
-    ...reportData.dailyRevenue.map((day) => day.revenue),
-    1
-  );
-  const maxDailyOrders = Math.max(
-    ...reportData.dailyRevenue.map((day) => day.orders),
-    1
-  );
-  const maxOrderTypeCount = Math.max(
-    ...reportData.orderTypeDistribution.map((entry) => entry.count),
-    1
-  );
+  const overview = data.overview;
+  const pieLabel = ({ name }: { name?: string }) => name || "";
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <section className="flex flex-col justify-between gap-5 border-b border-border pb-6 xl:flex-row xl:items-end">
         <div>
-          <h2 className="text-2xl font-bold text-text mb-2">
-            Reports & Analytics
-          </h2>
-          <p className="text-text-secondary">
-            Lightweight range-based sales summaries.
+          <h2 className="text-2xl font-bold text-text">Reports & Analytics</h2>
+          <p className="mt-2 text-text-secondary">
+            Track sales, orders, top dishes, table performance, and customer demand.
+          </p>
+          <p className="mt-2 text-xs font-semibold text-[#214c37]">
+            Revenue is shown before GST unless stated otherwise.
           </p>
         </div>
-        <div className="flex gap-3">
-          <select
-            value={dateRange}
-            onChange={(event) =>
-              setDateRange(event.target.value as "1" | "7" | "30")
-            }
-            className="input"
-          >
-            <option value="1">Today</option>
-            <option value="7">Last 7 Days</option>
-            <option value="30">Last 30 Days</option>
-          </select>
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end xl:justify-end">
+          <label className="text-sm font-semibold text-text">
+            Date range
+            <select
+              value={preset}
+              onChange={(event) => setPreset(event.target.value as ReportPreset)}
+              className="input mt-1.5 min-w-[180px]"
+            >
+              <option value="today">Today</option>
+              <option value="yesterday">Yesterday</option>
+              <option value="7days">Last 7 days</option>
+              <option value="30days">Last 30 days</option>
+              <option value="month">This month</option>
+              <option value="custom">Custom range</option>
+            </select>
+          </label>
+          {preset === "custom" && (
+            <>
+              <label className="text-sm font-semibold text-text">
+                From
+                <input
+                  type="date"
+                  value={customStart}
+                  max={customEnd}
+                  onChange={(event) => setCustomStart(event.target.value)}
+                  className="input mt-1.5"
+                />
+              </label>
+              <label className="text-sm font-semibold text-text">
+                To
+                <input
+                  type="date"
+                  value={customEnd}
+                  min={customStart}
+                  max={todayInput}
+                  onChange={(event) => setCustomEnd(event.target.value)}
+                  className="input mt-1.5"
+                />
+              </label>
+            </>
+          )}
           <Button
-            icon={<Download className="w-5 h-5" />}
+            variant="outline"
+            icon={<Download className="h-4 w-4" aria-hidden="true" />}
             onClick={exportReport}
-            variant="outline"
+            className="!border-[#214c37] !text-[#214c37] hover:!bg-[#214c37] hover:!text-white"
           >
-            Export
+            Export CSV
           </Button>
-        </div>
-      </div>
-
-      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        <MetricCard
-          icon={<ShoppingBag className="w-6 h-6 text-accent" />}
-          label={dateRange === "1" ? "Today's Orders" : "Orders in Period"}
-          value={reportData.totalOrders.toString()}
-        />
-        <MetricCard
-          icon={<DollarSign className="w-6 h-6 text-success" />}
-          label="Sales Before GST"
-          value={formatCurrency(reportData.totalRevenue)}
-        />
-        <MetricCard
-          icon={<Clock className="w-6 h-6 text-warning" />}
-          label="Open Orders"
-          value={reportData.openOrders.toString()}
-        />
-        <MetricCard
-          icon={<CheckCircle className="w-6 h-6 text-success" />}
-          label={dateRange === "1" ? "Served Today" : "Served in Period"}
-          value={reportData.servedOrders.toString()}
-        />
-        <MetricCard
-          icon={<Trophy className="w-6 h-6 text-warning" />}
-          label="Top Item"
-          value={reportData.topItems[0]?.name || "No sales yet"}
-        />
-        <MetricCard
-          icon={<Package className="w-6 h-6 text-accent-secondary" />}
-          label="Most Active Table"
-          value={reportData.mostActiveTable}
-        />
-      </div>
-
-      <Card className="space-y-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h3 className="font-bold text-text">Table Bill Summary</h3>
-            <p className="text-sm text-text-secondary">
-              View today's table-wise orders and print a GST bill summary.
-            </p>
-          </div>
-          <FileText className="w-5 h-5 text-accent" />
-        </div>
-
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <select
-            value={activeTableNumber}
-            onChange={(event) => setSelectedTableNumber(event.target.value)}
-            className="w-full sm:max-w-xs px-4 py-3 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-accent"
-            disabled={tableOptions.length === 0}
-          >
-            {tableOptions.length === 0 ? (
-              <option value="">No active tables today</option>
-            ) : (
-              tableOptions.map((tableNumber) => (
-                <option key={tableNumber} value={tableNumber}>
-                  Table {tableNumber}
-                </option>
-              ))
-            )}
-          </select>
           <Button
             variant="outline"
-            icon={<Printer className="w-4 h-4" />}
-            onClick={handlePrintBill}
-            disabled={tableOrders.length === 0}
+            icon={<Printer className="h-4 w-4" aria-hidden="true" />}
+            onClick={() => window.print()}
           >
-            Print Bill
+            Print Report
           </Button>
-          {tableOrders.length > 0 && (
-            <span className="text-sm font-semibold text-text">
-              Total before GST: {formatCurrency(tableSubtotal)}
-            </span>
-          )}
         </div>
+      </section>
 
-        {tableOrders.length === 0 ? (
-          <div className="rounded-lg bg-bg-subtle p-4 text-sm text-text-secondary">
-            No orders for the selected table today.
-          </div>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {tableOrders.map((order) => (
-              <div
-                key={order.id}
-                className="rounded-lg border border-border bg-white p-3"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-text">
-                      Order #{order.order_number}
-                    </p>
-                    <p className="text-xs text-text-secondary">
-                      {formatDateTime(order.created_at)}
-                    </p>
-                  </div>
-                  <span className="text-xs font-semibold capitalize text-text-secondary">
-                    {order.status}
-                  </span>
-                </div>
-                <div className="mt-3 space-y-1 text-sm">
-                  {order.items.map((item) => (
-                    <div
-                      key={`${order.id}-${item.menu_item_id}-${item.name}`}
-                      className="flex justify-between gap-3"
-                    >
-                      <span>
-                        {item.quantity}x {item.name}
-                      </span>
-                      <span className="font-medium">
-                        {formatCurrency(getItemTotal(item))}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      <div className="grid lg:grid-cols-2 gap-6">
-        <Card>
-          <h3 className="text-lg font-bold text-text mb-4">Revenue Trend</h3>
-          {reportData.dailyRevenue.length === 0 ? (
-            <p className="text-text-secondary text-center py-12">
-              No revenue in this period
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {reportData.dailyRevenue.map((day) => (
-                <BarRow
-                  key={day.date}
-                  label={day.date}
-                  value={formatCurrency(day.revenue)}
-                  percent={(day.revenue / maxDailyRevenue) * 100}
-                  colorClassName="bg-success"
-                />
-              ))}
-            </div>
-          )}
-        </Card>
-
-        <Card>
-          <h3 className="text-lg font-bold text-text mb-4">
-            Order Type Distribution
-          </h3>
-          {reportData.orderTypeDistribution.length === 0 ? (
-            <p className="text-text-secondary text-center py-12">
-              No orders in this period
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {reportData.orderTypeDistribution.map((entry) => (
-                <BarRow
-                  key={entry.type}
-                  label={entry.type}
-                  value={`${entry.count} orders`}
-                  percent={(entry.count / maxOrderTypeCount) * 100}
-                  colorClassName="bg-accent-secondary"
-                />
-              ))}
-            </div>
-          )}
-        </Card>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard icon={<IndianRupee className="h-5 w-5" />} label="Revenue" value={formatCurrency(overview.total_revenue)} helper="Before GST" />
+        <MetricCard icon={<ShoppingBag className="h-5 w-5" />} label="Total Orders" value={String(overview.total_orders)} helper={range?.label || "Selected period"} />
+        <MetricCard icon={<ReceiptText className="h-5 w-5" />} label="Average Order Value" value={formatCurrency(overview.average_order_value)} helper="Excludes cancelled orders" />
+        <MetricCard icon={<Package className="h-5 w-5" />} label="Items Sold" value={String(overview.items_sold)} helper="Across completed and active orders" />
+        <MetricCard icon={<CheckCircle2 className="h-5 w-5" />} label="Served Orders" value={String(overview.served_orders)} helper="Served or completed" />
+        <MetricCard icon={<XCircle className="h-5 w-5" />} label="Cancelled Orders" value={String(overview.cancelled_orders)} helper="Excluded from revenue" />
+        <MetricCard icon={<Trophy className="h-5 w-5" />} label="Top Selling Item" value={overview.top_item_name || "No sales yet"} helper={overview.top_item_name ? `${overview.top_item_quantity} sold` : "Selected period"} />
+        <MetricCard icon={<Table2 className="h-5 w-5" />} label="Most Active Table" value={overview.most_active_table ? (overview.most_active_table === "Counter" ? "Counter" : `Table ${overview.most_active_table}`) : "No table yet"} helper={`${overview.most_active_table_orders} orders`} />
       </div>
 
-      <Card>
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold text-text">Top Selling Items</h3>
-          <Package className="w-5 h-5 text-accent" />
+      {data.gst.enabled ? (
+        <section className="grid gap-3 rounded-[8px] border border-[#cad5cd] bg-[#f0f4f1] p-4 sm:grid-cols-2 xl:grid-cols-4">
+          <TaxValue label="Subtotal before GST" value={data.gst.subtotal_before_gst} />
+          <TaxValue label={`CGST estimate (${data.gst.cgst_rate}%)`} value={data.gst.cgst_estimate} />
+          <TaxValue label={`SGST estimate (${data.gst.sgst_rate}%)`} value={data.gst.sgst_estimate} />
+          <TaxValue label="Grand total estimate" value={data.gst.grand_total_estimate} strong />
+        </section>
+      ) : (
+        <div className="rounded-[8px] border border-border bg-white px-4 py-3 text-sm text-text-secondary">
+          GST is disabled for this restaurant. Revenue values are unchanged.
         </div>
+      )}
 
-        {reportData.topItems.length === 0 ? (
-          <p className="text-text-secondary text-center py-8">
-            No items sold yet
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {reportData.topItems.map((item, index) => (
-              <div
-                key={item.name}
-                className="flex items-center justify-between p-4 bg-bg-subtle rounded-lg hover:shadow-md transition-shadow"
+      <div className="grid gap-6 xl:grid-cols-2">
+        <ChartCard title="Revenue Trend" description={`Revenue before GST · ${range?.label}`}>
+          {trendData.length === 0 ? <EmptyChart message="No revenue in this period" /> : (
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={trendData} margin={{ top: 8, right: 10, left: -12, bottom: 0 }}>
+                <CartesianGrid stroke="#ecece7" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#777b75" />
+                <YAxis tick={{ fontSize: 11 }} stroke="#777b75" tickFormatter={(value) => `${APP_CONFIG.defaultCurrency}${Math.round(Number(value) / 1000)}k`} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(value) => [formatCurrency(Number(value)), "Revenue"]} />
+                <Area type="monotone" dataKey="revenue" stroke="#214c37" fill="#dce7e0" strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Orders Trend" description={`Order volume · ${range?.label}`}>
+          {trendData.length === 0 ? <EmptyChart message="No orders in this period" /> : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={trendData} margin={{ top: 8, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid stroke="#ecece7" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#777b75" />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} stroke="#777b75" />
+                <Tooltip contentStyle={tooltipStyle} />
+                <Bar dataKey="order_count" name="Orders" fill="#214c37" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Top Selling Items" description="Top 10 dishes by quantity sold">
+          {data.top_items.length === 0 ? <EmptyChart message="No item sales in this period" /> : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={data.top_items} layout="vertical" margin={{ top: 0, right: 10, left: 12, bottom: 0 }}>
+                <CartesianGrid stroke="#ecece7" horizontal={false} />
+                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                <YAxis type="category" dataKey="item_name" width={110} tick={{ fontSize: 11 }} />
+                <Tooltip contentStyle={tooltipStyle} />
+                <Bar dataKey="quantity_sold" name="Items sold" fill="#214c37" radius={[0, 3, 3, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Table Performance" description="Orders and revenue from the busiest tables">
+          {data.table_performance.length === 0 ? <EmptyChart message="No table activity in this period" /> : (
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={data.table_performance.slice(0, 8)} margin={{ top: 8, right: 0, left: -20, bottom: 0 }}>
+                <CartesianGrid stroke="#ecece7" vertical={false} />
+                <XAxis dataKey="table_number" tick={{ fontSize: 11 }} />
+                <YAxis yAxisId="orders" allowDecimals={false} tick={{ fontSize: 11 }} />
+                <YAxis yAxisId="revenue" orientation="right" hide />
+                <Tooltip contentStyle={tooltipStyle} />
+                <Bar yAxisId="orders" dataKey="order_count" name="Orders" fill="#789181" radius={[3, 3, 0, 0]} />
+                <Line yAxisId="revenue" type="monotone" dataKey="revenue" name="Revenue" stroke="#214c37" strokeWidth={2} dot={{ r: 3 }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Revenue by Category" description="Menu category contribution">
+          {data.category_sales.length === 0 ? <EmptyChart message="Category data is unavailable for this period" /> : (
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={data.category_sales} dataKey="revenue" nameKey="category_name" innerRadius={56} outerRadius={92} paddingAngle={2} label={pieLabel}>
+                  {data.category_sales.map((entry, index) => <Cell key={entry.category_name} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={tooltipStyle} formatter={(value) => formatCurrency(Number(value))} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Food Type Breakdown" description="Revenue by food preference">
+          {data.food_type_sales.length === 0 ? <EmptyChart message="Food type data is unavailable" /> : (
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={data.food_type_sales.map((entry) => ({ ...entry, label: foodTypeLabel(entry.food_type) }))} dataKey="revenue" nameKey="label" innerRadius={56} outerRadius={92} paddingAngle={2} label={pieLabel}>
+                  {data.food_type_sales.map((entry, index) => <Cell key={entry.food_type} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={tooltipStyle} formatter={(value) => formatCurrency(Number(value))} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Order Status Breakdown" description="Every order state in the selected period">
+          {data.status_breakdown.length === 0 ? <EmptyChart message="No order status data" /> : (
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={data.status_breakdown.map((entry) => ({ ...entry, label: statusLabel(entry.status) }))} dataKey="order_count" nameKey="label" innerRadius={56} outerRadius={92} paddingAngle={2} label={pieLabel}>
+                  {data.status_breakdown.map((entry, index) => <Cell key={entry.status} fill={CHART_COLORS[index % CHART_COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={tooltipStyle} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Hourly Rush Analysis" description="Orders by hour across the selected period">
+          {hourlyData.length === 0 ? <EmptyChart message="No hourly demand data" /> : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={hourlyData} margin={{ top: 8, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid stroke="#ecece7" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                <Tooltip contentStyle={tooltipStyle} />
+                <Bar dataKey="order_count" name="Orders" fill="#214c37" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </ChartCard>
+      </div>
+
+      <Card className="rounded-[8px] border-[#cad5cd] bg-[#f4f7f5]">
+        <div className="flex items-center gap-2">
+          <Lightbulb className="h-5 w-5 text-[#214c37]" aria-hidden="true" />
+          <h3 className="font-bold text-text">Business Insights</h3>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {insights.map((insight) => (
+            <p key={insight} className="border-t border-[#d5dfd8] pt-3 text-sm leading-6 text-[#474c48]">
+              {insight}
+            </p>
+          ))}
+        </div>
+      </Card>
+
+      <Card className="rounded-[8px] p-0">
+        <div className="flex flex-col justify-between gap-4 border-b border-border p-5 sm:flex-row sm:items-center">
+          <div>
+            <h3 className="font-bold text-text">Detailed Data</h3>
+            <p className="mt-1 text-sm text-text-secondary">Sorted server summaries for the selected period.</p>
+          </div>
+          <div className="flex overflow-x-auto" role="tablist" aria-label="Report data tables">
+            {(["items", "tables", "orders"] as DetailView[]).map((view) => (
+              <button
+                key={view}
+                type="button"
+                role="tab"
+                aria-selected={detailView === view}
+                onClick={() => setDetailView(view)}
+                className={`border-b-2 px-4 py-2 text-sm font-semibold capitalize whitespace-nowrap ${detailView === view ? "border-[#214c37] text-[#214c37]" : "border-transparent text-text-secondary"}`}
               >
-                <div className="flex items-center space-x-4">
-                  <div className="flex items-center justify-center w-10 h-10 bg-accent rounded-full text-white font-bold">
-                    {index + 1}
-                  </div>
-                  <div>
-                    <div className="font-semibold text-text">{item.name}</div>
-                    <div className="text-sm text-text-secondary">
-                      {item.count} sold
-                    </div>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-lg font-bold text-success">
-                    {formatCurrency(item.revenue)}
-                  </div>
-                  <div className="text-xs text-text-secondary">Revenue</div>
-                </div>
-              </div>
+                {view === "items" ? "Top Items" : view === "tables" ? "Tables" : "Orders"}
+              </button>
             ))}
           </div>
-        )}
+        </div>
+        <div className="overflow-x-auto p-5">
+          {detailView === "items" && <TopItemsTable data={data.top_items} />}
+          {detailView === "tables" && <TablesTable data={data.table_performance} />}
+          {detailView === "orders" && <OrdersTable data={data.orders} />}
+        </div>
       </Card>
 
-      <Card>
-        <h3 className="text-lg font-bold text-text mb-4">Daily Orders</h3>
-        {reportData.dailyRevenue.length === 0 ? (
-          <p className="text-text-secondary text-center py-12">
-            No orders in this period
-          </p>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-            {reportData.dailyRevenue.map((day) => (
-              <div key={day.date} className="rounded-lg bg-bg-subtle p-3">
-                <div className="h-28 flex items-end justify-center mb-2">
-                  <div
-                    className="w-full rounded-t bg-accent"
-                    style={{
-                      height: `${Math.max(
-                        8,
-                        (day.orders / maxDailyOrders) * 100
-                      )}%`,
-                    }}
-                  />
-                </div>
-                <p className="text-xs text-text-secondary text-center">
-                  {day.date}
-                </p>
-                <p className="font-bold text-text text-center">{day.orders}</p>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+      <TableBillPanel restaurant={restaurant} />
+
+      {loading && (
+        <div className="fixed bottom-5 right-5 flex items-center gap-2 rounded-[6px] border border-border bg-white px-4 py-3 text-sm font-semibold shadow-lg">
+          <Clock3 className="h-4 w-4 animate-spin text-[#214c37]" /> Updating report
+        </div>
+      )}
     </div>
   );
 };
 
-interface MetricCardProps {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}
-
-const MetricCard: React.FC<MetricCardProps> = ({ icon, label, value }) => (
-  <Card>
-    <div className="flex items-center justify-between mb-3">
-      <div className="p-3 bg-bg-subtle rounded-lg">{icon}</div>
-    </div>
-    <div className="text-2xl font-bold text-text mb-1">{value}</div>
-    <p className="text-text-secondary text-sm">{label}</p>
-  </Card>
+const TaxValue: React.FC<{ label: string; value: number; strong?: boolean }> = ({ label, value, strong }) => (
+  <div>
+    <p className="text-xs font-semibold text-[#5f6b63]">{label}</p>
+    <p className={`mt-1 text-lg ${strong ? "font-bold text-[#214c37]" : "font-semibold text-text"}`}>{formatCurrency(value)}</p>
+  </div>
 );
 
-interface BarRowProps {
-  label: string;
-  value: string;
-  percent: number;
-  colorClassName: string;
-}
+const TableEmpty: React.FC<{ columns: number; message: string }> = ({ columns, message }) => (
+  <tr><td colSpan={columns} className="py-10 text-center text-sm text-text-secondary">{message}</td></tr>
+);
 
-const BarRow: React.FC<BarRowProps> = ({
-  label,
-  value,
-  percent,
-  colorClassName,
-}) => (
+const TopItemsTable: React.FC<{ data: ReportsAnalytics["top_items"] }> = ({ data }) => (
+  <table className="w-full min-w-[760px] text-left text-sm">
+    <thead className="border-b border-border text-xs uppercase text-text-secondary"><tr><th className="pb-3 pr-4">Item</th><th className="pb-3 pr-4">Category</th><th className="pb-3 pr-4">Food type</th><th className="pb-3 pr-4">Quantity</th><th className="pb-3 pr-4">Revenue</th><th className="pb-3">Average price</th></tr></thead>
+    <tbody className="divide-y divide-border">{data.length === 0 ? <TableEmpty columns={6} message="No item sales in this period" /> : data.map((item) => <tr key={`${item.item_name}-${item.food_type}`}><td className="py-3 pr-4 font-semibold">{item.item_name}</td><td className="py-3 pr-4 text-text-secondary">{item.category_name}</td><td className="py-3 pr-4">{foodTypeLabel(item.food_type)}</td><td className="py-3 pr-4">{item.quantity_sold}</td><td className="py-3 pr-4 font-semibold text-[#214c37]">{formatCurrency(item.revenue)}</td><td className="py-3">{formatCurrency(item.average_price)}</td></tr>)}</tbody>
+  </table>
+);
+
+const TablesTable: React.FC<{ data: ReportsAnalytics["table_performance"] }> = ({ data }) => (
+  <table className="w-full min-w-[700px] text-left text-sm">
+    <thead className="border-b border-border text-xs uppercase text-text-secondary"><tr><th className="pb-3 pr-4">Table</th><th className="pb-3 pr-4">Orders</th><th className="pb-3 pr-4">Revenue</th><th className="pb-3 pr-4">Average order</th><th className="pb-3">Last order</th></tr></thead>
+    <tbody className="divide-y divide-border">{data.length === 0 ? <TableEmpty columns={5} message="No table activity in this period" /> : data.map((table) => <tr key={table.table_number}><td className="py-3 pr-4 font-semibold">{table.table_number === "Counter" ? "Counter" : `Table ${table.table_number}`}</td><td className="py-3 pr-4">{table.order_count}</td><td className="py-3 pr-4 font-semibold text-[#214c37]">{formatCurrency(table.revenue)}</td><td className="py-3 pr-4">{formatCurrency(table.average_order_value)}</td><td className="py-3 text-text-secondary">{formatDateTime(table.last_order_time)}</td></tr>)}</tbody>
+  </table>
+);
+
+const OrdersTable: React.FC<{ data: ReportsAnalytics["orders"] }> = ({ data }) => (
   <div>
-    <div className="flex justify-between text-sm mb-1">
-      <span className="font-medium text-text capitalize">{label}</span>
-      <span className="text-text-secondary">{value}</span>
-    </div>
-    <div className="h-3 rounded-full bg-bg-subtle overflow-hidden">
-      <div
-        className={`h-full rounded-full ${colorClassName}`}
-        style={{ width: `${Math.max(6, percent)}%` }}
-      />
-    </div>
+    <div className="mb-3 flex items-center gap-2 text-xs text-text-secondary"><CalendarDays className="h-4 w-4" />Latest 100 orders in this range</div>
+    <table className="w-full min-w-[760px] text-left text-sm">
+      <thead className="border-b border-border text-xs uppercase text-text-secondary"><tr><th className="pb-3 pr-4">Order</th><th className="pb-3 pr-4">Table</th><th className="pb-3 pr-4">Time</th><th className="pb-3 pr-4">Status</th><th className="pb-3 pr-4">Items</th><th className="pb-3">Before GST</th></tr></thead>
+      <tbody className="divide-y divide-border">{data.length === 0 ? <TableEmpty columns={6} message="No orders in this period" /> : data.map((order) => <tr key={order.id}><td className="py-3 pr-4 font-semibold">#{order.order_number}</td><td className="py-3 pr-4">{order.table_number === "Counter" ? "Counter" : `Table ${order.table_number}`}</td><td className="py-3 pr-4 text-text-secondary">{formatDateTime(order.created_at)}</td><td className="py-3 pr-4"><span className="rounded-[4px] bg-bg-subtle px-2 py-1 text-xs font-semibold">{statusLabel(order.status)}</span></td><td className="py-3 pr-4">{order.items_count}</td><td className="py-3 font-semibold text-[#214c37]">{formatCurrency(order.subtotal)}</td></tr>)}</tbody>
+    </table>
   </div>
 );
 

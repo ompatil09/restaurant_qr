@@ -1,4 +1,4 @@
-# FoodOrder - Restaurant QR Ordering Counter Dashboard
+# Rasivo - Restaurant QR Ordering Counter Dashboard
 
 Focused QR ordering for restaurants that run orders from one billing counter or kitchen counter screen.
 

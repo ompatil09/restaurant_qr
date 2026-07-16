@@ -19,10 +19,11 @@ import Orders from "./Orders";
 import Menu from "./Menu";
 import Tables from "./Tables";
 import RestaurantSettings from "./RestaurantSettings";
-import Reports from "./Reports";
-import { Alert, Card } from "../../components/ui";
+import { Alert, Card, Loading } from "../../components/ui";
 import { supabase } from "../../config/supabase";
 import { getRestaurantAccessStatus } from "../../services/subscriptionService";
+
+const Reports = React.lazy(() => import("./Reports"));
 
 const RestaurantDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -145,7 +146,14 @@ const RestaurantDashboard: React.FC = () => {
             <Route path="orders" element={<Orders />} />
             <Route path="menu" element={<Menu />} />
             <Route path="tables" element={<Tables />} />
-            <Route path="reports" element={<Reports />} />
+            <Route
+              path="reports"
+              element={
+                <React.Suspense fallback={<Loading text="Loading reports..." />}>
+                  <Reports restaurant={restaurant} />
+                </React.Suspense>
+              }
+            />
             <Route path="settings" element={<RestaurantSettings />} />
           </Routes>
         )}

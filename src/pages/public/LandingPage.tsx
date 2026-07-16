@@ -171,7 +171,13 @@ const LandingPage: React.FC = () => (
               Open the detailed demonstration <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Link>
           </div>
-          <div className="h-[360px] rounded-[8px] border border-[#c9c8c0] bg-[#e5e4dd] shadow-[18px_22px_0_#214c37]" aria-label="Restaurant photography placeholder" />
+          <figure className="aspect-[4/3] overflow-hidden rounded-[8px] border border-[#c9c8c0] bg-white shadow-[12px_14px_0_#214c37]">
+            <img
+              src="/rasivo-product-flow.png"
+              alt="QR table ordering flow from menu browsing to kitchen printing and reports"
+              className="h-full w-full object-contain"
+            />
+          </figure>
         </div>
       </section>
 
